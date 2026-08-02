@@ -1,0 +1,244 @@
+@import 'tailwindcss';
+
+/* Dark mode driven by a `.dark` class on <html> (see useTheme). */
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Token system — warm cream/charcoal neutrals with a deep red accent.
+ * A "modern AI product" identity (Claude-like warmth) tuned to red.
+ * Light values here, dark overrides below.
+ */
+:root {
+  --radius: 0.75rem;
+
+  --background: #faf7f3;
+  --foreground: #241f1c;
+
+  --card: #ffffff;
+  --card-foreground: #241f1c;
+
+  --popover: #ffffff;
+  --popover-foreground: #241f1c;
+
+  /* Deep, slightly-warm crimson accent */
+  --primary: #b8352c;
+  --primary-foreground: #ffffff;
+
+  --secondary: #f2ece6;
+  --secondary-foreground: #241f1c;
+
+  --muted: #efe8e1;
+  --muted-foreground: #857a73;
+
+  /* Active/selected surfaces — a soft wash of the red accent */
+  --accent: #f6e6e4;
+  --accent-foreground: #241f1c;
+
+  --destructive: #cf2222;
+  --destructive-foreground: #ffffff;
+
+  --border: #e7ded6;
+  --input: #e7ded6;
+  --ring: #b8352c;
+
+  /* App chrome — the conversation rail sits a shade below the canvas */
+  --sidebar: #f2ece6;
+}
+
+.dark {
+  --background: #19100e;
+  --foreground: #f0e8e2;
+
+  --card: #221b18;
+  --card-foreground: #f0e8e2;
+
+  --popover: #221b18;
+  --popover-foreground: #f0e8e2;
+
+  --primary: #e0574a;
+  --primary-foreground: #1a100e;
+
+  --secondary: #2a211d;
+  --secondary-foreground: #f0e8e2;
+
+  --muted: #2a211d;
+  --muted-foreground: #9b8f88;
+
+  --accent: #2f201d;
+  --accent-foreground: #f0e8e2;
+
+  --destructive: #f0685c;
+  --destructive-foreground: #1a100e;
+
+  --border: #332924;
+  --input: #332924;
+  --ring: #e0574a;
+
+  --sidebar: #140e0c;
+}
+
+/* Map semantic vars onto Tailwind color/utility namespaces. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: 'Archivo', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas,
+    monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Quiet, theme-aware scrollbars. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+/* Pulsing block cursor shown at the end of a streaming assistant reply. */
+@keyframes caret-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scaleY(0.85);
+  }
+}
+.streaming-caret::after {
+  content: '';
+  display: inline-block;
+  width: 0.6ch;
+  height: 1.05em;
+  margin-left: 2px;
+  border-radius: 1px;
+  vertical-align: text-bottom;
+  background: var(--color-primary);
+  animation: caret-pulse 1.1s ease-in-out infinite;
+}
+
+/* Shimmering "Thinking…" line shown before the first token arrives. */
+@keyframes thinking-shimmer {
+  0% {
+    background-position: 150% 0;
+  }
+  100% {
+    background-position: -50% 0;
+  }
+}
+.thinking-shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--color-muted-foreground) 0%,
+    var(--color-muted-foreground) 35%,
+    var(--color-foreground) 50%,
+    var(--color-muted-foreground) 65%,
+    var(--color-muted-foreground) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: thinking-shimmer 1.8s linear infinite;
+}
+
+/* Organic "living" assistant mark — a gradient blob that morphs and rotates. */
+@keyframes blob-morph {
+  0%,
+  100% {
+    border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%;
+  }
+  33% {
+    border-radius: 63% 37% 44% 56% / 56% 63% 37% 44%;
+  }
+  66% {
+    border-radius: 37% 63% 56% 44% / 63% 41% 59% 37%;
+  }
+}
+@keyframes blob-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.blob-mark {
+  display: inline-block;
+  flex-shrink: 0;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-primary) 88%, black) 0%,
+    var(--color-primary) 45%,
+    color-mix(in oklab, var(--color-primary) 45%, white) 100%
+  );
+  border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%;
+  filter: drop-shadow(0 1px 4px color-mix(in oklab, var(--color-primary) 35%, transparent));
+  animation:
+    blob-morph 8s ease-in-out infinite,
+    blob-spin 16s linear infinite;
+}
+.blob-mark--active {
+  animation-duration: 3.4s, 9s;
+  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--color-primary) 55%, transparent));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
