@@ -4,6 +4,7 @@ import { MarkdownContent } from './MarkdownContent'
 import { BlobMark } from './BlobMark'
 import { DownloadButton } from '@/components/agent/DownloadButton'
 import { TracePanel } from '@/components/agent/TracePanel'
+import { ToolTimeline } from '@/components/agent/ToolTimeline'
 import type { UIMessage } from '@/hooks/useSessions'
 
 interface MessageBubbleProps {
@@ -29,6 +30,10 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
       <BlobMark size={26} active={streaming} className="mt-0.5" />
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
+        {message.liveTools && message.liveTools.length > 0 && (
+          <ToolTimeline tools={message.liveTools} />
+        )}
+
         {message.status === 'error' ? (
           <div className="flex flex-col gap-2">
             <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -50,7 +55,7 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
           <MarkdownContent className={cn(streaming && 'streaming-caret')}>
             {message.content}
           </MarkdownContent>
-        ) : (
+        ) : message.liveTools && message.liveTools.length > 0 ? null : (
           <div className="flex items-center gap-2 py-1 text-sm">
             <BlobMark size={16} active />
             <span className="thinking-shimmer font-medium">Working…</span>

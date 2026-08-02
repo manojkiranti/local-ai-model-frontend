@@ -47,16 +47,6 @@ export interface TokenResponse {
   expires_in: number
 }
 
-export interface ChatChunk {
-  model: string
-  message?: { role: Role; content: string }
-  done: boolean
-  created_at?: string
-  total_duration?: number
-  eval_count?: number
-  prompt_eval_count?: number
-}
-
 export interface EmbeddingsResponse {
   model: string
   embeddings: number[][]
@@ -74,19 +64,13 @@ export interface ChatTurnRequest {
   options?: Record<string, unknown>
 }
 
-export interface AgentTurnRequest {
-  session_id?: string
-  message: string
-  model?: string
-}
-
 /** One row in a persisted conversation thread (GET /v1/sessions/{id}). */
 export interface ThreadMessage {
   id: string
   seq: number
   role: 'user' | 'assistant'
   content: string
-  /** Non-null only for assistant rows produced by /v1/agent. */
+  /** Non-null on assistant rows whose turn called tools → renders the trace. */
   trace: TraceEntry[] | null
   model: string | null
   created_at: string
@@ -109,8 +93,8 @@ export interface SessionDetail {
   messages: ThreadMessage[]
 }
 
-// Agent (`POST /v1/agent`) — the model runs a tool-calling loop server-side and
-// returns ONCE with the full answer + trace (non-streaming, unlike /v1/chat).
+// Tool-calling metadata. The gateway runs the tool loop server-side; these types
+// describe both the streamed `done` trace and the persisted thread trace.
 export type ToolCallStatus =
   | 'ok'
   | 'unknown_tool'
@@ -134,14 +118,46 @@ export interface TraceEntry {
   tool_calls: ToolCall[]
 }
 
-export interface AgentResponse {
+// --------------------------------------------------------------------------- //
+// Streamed chat events (`POST /v1/chat`, stream:true) — NDJSON, one typed
+// object per line. `token` deltas build the answer; `tool_call`/`tool_result`
+// drive a live "working…" timeline; `done` terminates the turn.
+// --------------------------------------------------------------------------- //
+/** A delta of the assistant's answer text — append to the bubble. */
+export interface TokenEvent {
+  type: 'token'
+  content: string
+}
+
+/** The model started a tool call. */
+export interface ToolCallEvent {
+  type: 'tool_call'
+  name: string
+  arguments: Record<string, unknown> | string
+  iteration: number
+}
+
+/** A tool finished; `status` says how it went. */
+export interface ToolResultEvent {
+  type: 'tool_result'
+  name: string
+  status: ToolCallStatus
+  result: string
+  iteration: number
+}
+
+/** Terminal event — the turn is complete; carries the authoritative trace. */
+export interface DoneEvent {
+  type: 'done'
   session_id: string
-  final_answer: string | null
   stop_reason: StopReason
   iteration_count: number
+  final_answer: string
   error_message: string | null
   trace: TraceEntry[]
 }
+
+export type ChatEvent = TokenEvent | ToolCallEvent | ToolResultEvent | DoneEvent
 
 // --------------------------------------------------------------------------- //
 // Errors
@@ -308,18 +324,21 @@ export async function getEmbeddings(
 }
 
 // --------------------------------------------------------------------------- //
-// Turn endpoints (stateful) + sessions
+// The one turn endpoint (stateful, tool-capable, streaming) + sessions
 // --------------------------------------------------------------------------- //
 /**
- * Start or continue a plain-chat turn with streaming (`POST /v1/chat`,
- * stream:true). The new/continuing session id is in the `X-Session-Id` response
- * header (read immediately — the NDJSON body carries no session id). Returns the
- * session id plus a generator over the reply-delta chunks (`message.content`).
+ * Start or continue a turn (`POST /v1/chat`, stream:true) — the single endpoint
+ * for everything. Tools are always available; the model calls one only when
+ * useful, so there is no separate agent endpoint. The new/continuing session id
+ * is in the `X-Session-Id` response header (read immediately — the NDJSON body's
+ * id only arrives on the terminal `done` event). Returns that id plus a
+ * generator over the typed event stream (`token` / `tool_call` / `tool_result` /
+ * `done`).
  */
 export async function openChatStream(
   req: ChatTurnRequest,
   signal?: AbortSignal,
-): Promise<{ sessionId: string | null; chunks: AsyncGenerator<ChatChunk> }> {
+): Promise<{ sessionId: string | null; events: AsyncGenerator<ChatEvent> }> {
   const res = await rawFetch(
     '/v1/chat',
     { method: 'POST', body: JSON.stringify({ ...req, stream: true }) },
@@ -328,25 +347,10 @@ export async function openChatStream(
   if (!res.ok || !res.body) throw await errorFromResponse(res)
   const sessionId = res.headers.get('X-Session-Id')
   const body = res.body
-  async function* chunks(): AsyncGenerator<ChatChunk> {
-    for await (const obj of readNdjson(body)) yield obj as ChatChunk
+  async function* events(): AsyncGenerator<ChatEvent> {
+    for await (const obj of readNdjson(body)) yield obj as ChatEvent
   }
-  return { sessionId, chunks: chunks() }
-}
-
-/**
- * Run one agent turn (`POST /v1/agent`) — chat WITH tools. Non-streaming:
- * resolves once with the final answer, tool-call trace, and the session id.
- */
-export async function sendAgentTurn(
-  req: AgentTurnRequest,
-  signal?: AbortSignal,
-): Promise<AgentResponse> {
-  return request<AgentResponse>(
-    '/v1/agent',
-    { method: 'POST', body: JSON.stringify(req) },
-    signal,
-  )
+  return { sessionId, events: events() }
 }
 
 /** Conversation sidebar list (newest-updated first). */

@@ -5,16 +5,22 @@ import {
   getSession,
   listSessions,
   openChatStream,
-  sendAgentTurn,
   GatewayError,
   type SessionSummary,
   type ThreadMessage,
+  type ToolCallStatus,
   type TraceEntry,
 } from '@/lib/api'
 import { extractDownloads, type FileDownload } from '@/lib/agent-api'
 
-export type TurnMode = 'chat' | 'agent'
 export type MessageStatus = 'streaming' | 'done' | 'error'
+
+/** A tool call surfaced live from the event stream, before the final trace lands. */
+export interface LiveTool {
+  name: string
+  status: 'running' | ToolCallStatus
+  iteration: number
+}
 
 /** One rendered chat bubble — from server history or an in-flight optimistic turn. */
 export interface UIMessage {
@@ -23,19 +29,34 @@ export interface UIMessage {
   content: string
   status: MessageStatus
   error?: string
-  /** Non-null for agent replies → renders the "How it worked" trace panel. */
+  /** Non-null when the turn called tools → renders the "How it worked" panel. */
   trace?: TraceEntry[] | null
+  /** Live tool timeline while streaming; cleared once the turn is done. */
+  liveTools?: LiveTool[]
   downloads?: FileDownload[]
   model?: string | null
   /** Present on a failed assistant turn — the user text to re-send on Retry. */
   retryText?: string
 }
 
-/** Sentinel mode key for a not-yet-created ("New chat") conversation. */
-const NEW = '__new__'
-
 function uid(): string {
   return crypto.randomUUID()
+}
+
+/** Mark the most recent still-running call with this name as finished. */
+function settleTool(
+  tools: LiveTool[] | undefined,
+  name: string,
+  status: ToolCallStatus,
+): LiveTool[] {
+  const list = tools ? [...tools] : []
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].name === name && list[i].status === 'running') {
+      list[i] = { ...list[i], status }
+      break
+    }
+  }
+  return list
 }
 
 function threadToUI(m: ThreadMessage): UIMessage {
@@ -52,9 +73,10 @@ function threadToUI(m: ThreadMessage): UIMessage {
 
 /**
  * Server-owned conversation state. The sidebar and thread come from
- * `/v1/sessions`; a turn sends only the new message and the server persists
- * history. New conversations get their id from the turn response (the
- * `X-Session-Id` header when streaming) and are then adopted as active.
+ * `/v1/sessions`; a turn sends only the new message to the single `/v1/chat`
+ * endpoint (stateful, tool-capable, streaming). New conversations get their id
+ * from the `X-Session-Id` header (or the terminal `done` event) and are then
+ * adopted as active.
  */
 export function useSessions() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -62,20 +84,10 @@ export function useSessions() {
   const [messages, setMessages] = useState<UIMessage[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
   const [sending, setSending] = useState(false)
-  const [modes, setModes] = useState<Record<string, TurnMode>>({})
 
   const controllerRef = useRef<AbortController | null>(null)
   const activeIdRef = useRef<string | null>(null)
   activeIdRef.current = activeId
-  const modesRef = useRef(modes)
-  modesRef.current = modes
-
-  const mode: TurnMode = modes[activeId ?? NEW] ?? 'chat'
-
-  const setMode = useCallback((m: TurnMode) => {
-    const key = activeIdRef.current ?? NEW
-    setModes((prev) => ({ ...prev, [key]: m }))
-  }, [])
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -142,60 +154,86 @@ export function useSessions() {
   /** Execute one turn against `assistantId`, reused by send() and retry(). */
   const runTurn = useCallback(
     async (assistantId: string, text: string, options?: Record<string, unknown>) => {
-      const turnMode = modesRef.current[activeIdRef.current ?? NEW] ?? 'chat'
       const sessionForTurn = activeIdRef.current ?? undefined
       const controller = new AbortController()
       controllerRef.current = controller
       setSending(true)
 
-      // New conversation: adopt the server's session id (carry the pending mode).
+      // New conversation: adopt the server's session id once we learn it.
       const adopt = (sid: string | null | undefined) => {
         if (sid && !activeIdRef.current) {
-          setModes((prev) => (prev[NEW] ? { ...prev, [sid]: prev[NEW] } : prev))
           activeIdRef.current = sid
           setActiveId(sid)
         }
       }
 
       try {
-        if (turnMode === 'chat') {
-          const { sessionId, chunks } = await openChatStream(
-            { session_id: sessionForTurn, message: text, options },
-            controller.signal,
-          )
-          adopt(sessionId)
-          for await (const chunk of chunks) {
-            const delta = chunk.message?.content
+        const { sessionId, events } = await openChatStream(
+          { session_id: sessionForTurn, message: text, options },
+          controller.signal,
+        )
+        adopt(sessionId)
+
+        for await (const ev of events) {
+          if (ev.type === 'token') {
+            const delta = ev.content
             if (delta) patch(assistantId, (m) => ({ content: m.content + delta }))
-          }
-          patch(assistantId, (m) => (m.status === 'streaming' ? { status: 'done' } : {}))
-        } else {
-          const res = await sendAgentTurn(
-            { session_id: sessionForTurn, message: text },
-            controller.signal,
-          )
-          adopt(res.session_id)
-          if (res.stop_reason === 'error') {
-            patch(assistantId, () => ({
-              status: 'error',
-              error: res.error_message ?? 'The agent reported an error.',
-              retryText: text,
+          } else if (ev.type === 'tool_call') {
+            patch(assistantId, (m) => ({
+              liveTools: [
+                ...(m.liveTools ?? []),
+                { name: ev.name, status: 'running', iteration: ev.iteration },
+              ],
             }))
-          } else {
-            patch(assistantId, () => ({
-              status: 'done',
-              content: res.final_answer ?? '_The agent finished without a text answer._',
-              trace: res.trace,
-              downloads: extractDownloads(res.trace),
+          } else if (ev.type === 'tool_result') {
+            patch(assistantId, (m) => ({
+              liveTools: settleTool(m.liveTools, ev.name, ev.status),
             }))
+          } else if (ev.type === 'done') {
+            adopt(ev.session_id)
+            const trace = ev.trace && ev.trace.length ? ev.trace : null
+            if (ev.stop_reason === 'error') {
+              patch(assistantId, () => ({
+                status: 'error',
+                error: ev.error_message ?? 'The model reported an error.',
+                retryText: text,
+                liveTools: undefined,
+                trace,
+              }))
+            } else {
+              patch(assistantId, (m) => ({
+                status: 'done',
+                content:
+                  m.content ||
+                  ev.final_answer ||
+                  '_The model finished without a text answer._',
+                trace,
+                downloads: trace ? extractDownloads(trace) : undefined,
+                liveTools: undefined,
+              }))
+            }
           }
         }
+
+        // Stream ended without an explicit `done` (defensive) — settle the bubble.
+        patch(assistantId, (m) =>
+          m.status === 'streaming' ? { status: 'done', liveTools: undefined } : {},
+        )
         await refreshSessions()
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') {
-          patch(assistantId, (m) => ({ status: 'done', content: m.content || '_Stopped._' }))
+          patch(assistantId, (m) => ({
+            status: 'done',
+            content: m.content || '_Stopped._',
+            liveTools: undefined,
+          }))
         } else {
-          patch(assistantId, () => ({ status: 'error', error: describeError(e), retryText: text }))
+          patch(assistantId, () => ({
+            status: 'error',
+            error: describeError(e),
+            retryText: text,
+            liveTools: undefined,
+          }))
           // The user message may have been persisted (e.g. 502) — refresh the list.
           refreshSessions().catch(() => {})
         }
@@ -227,6 +265,9 @@ export function useSessions() {
         content: '',
         error: undefined,
         retryText: undefined,
+        trace: undefined,
+        downloads: undefined,
+        liveTools: undefined,
       }))
       void runTurn(assistantId, text, options)
     },
@@ -241,8 +282,6 @@ export function useSessions() {
     messages,
     loadingThread,
     sending,
-    mode,
-    setMode,
     newChat,
     selectSession,
     removeSession,

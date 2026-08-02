@@ -1,22 +1,21 @@
 /**
- * Typed client for the gateway's agent endpoints (`/v1/agent`, `/v1/tools`,
- * `/v1/files/:id`). The tool schema lives server-side — the frontend never
- * sends tool definitions; the user types natural language and the backend
- * model decides which tools to call.
+ * Helpers for tool artifacts and the gateway's file/tool endpoints
+ * (`/v1/tools`, `/v1/files/:id`). Tools run server-side inside `/v1/chat`; the
+ * frontend only parses the trace they leave behind and fetches the files they
+ * produce.
  *
  * Base URL comes from `config.ts` (never hardcoded here).
  */
 import { API_BASE, apiUrl } from './config'
 import { GatewayError, errorFromResponse } from './api'
-import type { AgentResponse, TraceEntry } from './api'
+import type { TraceEntry } from './api'
 import { getToken } from './auth-token'
 
 // --------------------------------------------------------------------------- //
-// Types — the AgentResponse schema now lives in the single client (`api.ts`);
-// re-export it so existing consumers can keep importing from here.
+// Types — the trace schema lives in the single client (`api.ts`); re-export it
+// so existing consumers can keep importing from here.
 // --------------------------------------------------------------------------- //
 export type {
-  AgentResponse,
   StopReason,
   ToolCall,
   ToolCallStatus,
@@ -121,30 +120,6 @@ export function fileDownloadUrl(id: string): string {
 // --------------------------------------------------------------------------- //
 // Endpoints
 // --------------------------------------------------------------------------- //
-/**
- * Combine the caller's abort signal (a Stop button) with a generous timeout —
- * tool calling can take several seconds and multiple iterations.
- */
-function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
-  const timeout = AbortSignal.timeout(ms)
-  return signal ? AbortSignal.any([signal, timeout]) : timeout
-}
-
-/** Run one agent turn. Sends the simple `{ prompt }` form. */
-export async function runAgent(
-  prompt: string,
-  signal?: AbortSignal,
-): Promise<AgentResponse> {
-  const res = await fetch(apiUrl('/v1/agent'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
-    signal: withTimeout(signal, 90_000),
-  })
-  if (!res.ok) throw await errorFromResponse(res)
-  return res.json() as Promise<AgentResponse>
-}
-
 /** List the tools the gateway currently exposes (called once for the indicator). */
 export async function listTools(signal?: AbortSignal): Promise<ToolsResponse> {
   const res = await fetch(apiUrl('/v1/tools'), { signal })

@@ -1,7 +1,6 @@
-import { AlertTriangle, Loader2, MessagesSquare, Wrench } from 'lucide-react'
+import { AlertTriangle, Loader2, Wrench } from 'lucide-react'
 import { toOllamaOptions, type GenerationConfig } from '@/lib/chat-config'
-import type { TurnMode, UIMessage } from '@/hooks/useSessions'
-import { cn } from '@/lib/utils'
+import type { UIMessage } from '@/hooks/useSessions'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
 import { GenerationSettings } from './GenerationSettings'
@@ -9,8 +8,6 @@ import { GenerationSettings } from './GenerationSettings'
 interface ChatPanelProps {
   messages: UIMessage[]
   sending: boolean
-  mode: TurnMode
-  onSetMode: (mode: TurnMode) => void
   loadingThread: boolean
   reachable: boolean
   genConfig: GenerationConfig
@@ -23,8 +20,6 @@ interface ChatPanelProps {
 export function ChatPanel({
   messages,
   sending,
-  mode,
-  onSetMode,
   loadingThread,
   reachable,
   genConfig,
@@ -33,7 +28,6 @@ export function ChatPanel({
   onRetry,
   onStop,
 }: ChatPanelProps) {
-  // Generation options apply to plain chat; the agent turn ignores them.
   const handleSend = (text: string) => onSend(text, toOllamaOptions(genConfig))
   const handleRetry = (assistantId: string, text: string) =>
     onRetry(assistantId, text, toOllamaOptions(genConfig))
@@ -43,7 +37,10 @@ export function ChatPanel({
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b px-5 py-2.5">
-        <ModeToggle mode={mode} onChange={onSetMode} disabled={sending} />
+        <div className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Wrench className="size-3.5" />
+          Tools run automatically when useful
+        </div>
         <div className="ml-auto">
           <GenerationSettings value={genConfig} onChange={onGenConfigChange} />
         </div>
@@ -81,62 +78,8 @@ export function ChatPanel({
         onStop={onStop}
         streaming={sending}
         disabled={!reachable}
-        placeholder={
-          mode === 'agent'
-            ? 'Ask the agent — it can create files and use tools…'
-            : 'Send a message…'
-        }
+        placeholder="Send a message — the model uses tools when useful…"
       />
-    </div>
-  )
-}
-
-function ModeToggle({
-  mode,
-  onChange,
-  disabled,
-}: {
-  mode: TurnMode
-  onChange: (mode: TurnMode) => void
-  disabled: boolean
-}) {
-  const options: { value: TurnMode; label: string; icon: typeof Wrench }[] = [
-    { value: 'chat', label: 'Chat', icon: MessagesSquare },
-    { value: 'agent', label: 'Tools', icon: Wrench },
-  ]
-  return (
-    <div
-      role="tablist"
-      aria-label="Conversation mode"
-      className="inline-flex items-center gap-1 rounded-xl bg-muted p-1"
-    >
-      {options.map(({ value, label, icon: Icon }) => {
-        const selected = mode === value
-        return (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={selected}
-            disabled={disabled}
-            onClick={() => onChange(value)}
-            title={
-              value === 'agent'
-                ? 'Agent mode: the model can call tools (file creation, data lookups)'
-                : 'Plain chat: conversation only, no tools'
-            }
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-60',
-              selected
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Icon className="size-3.5" />
-            {label}
-          </button>
-        )
-      })}
     </div>
   )
 }

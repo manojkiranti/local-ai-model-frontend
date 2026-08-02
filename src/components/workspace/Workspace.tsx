@@ -51,8 +51,6 @@ export function Workspace() {
             <ChatPanel
               messages={chat.messages}
               sending={chat.sending}
-              mode={chat.mode}
-              onSetMode={chat.setMode}
               loadingThread={chat.loadingThread}
               reachable={health.reachable}
               genConfig={genConfig}
