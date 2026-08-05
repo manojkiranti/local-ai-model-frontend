@@ -203,8 +203,11 @@ change to include the attachment on thread messages — out of scope here.
    `describeUploadError` output: valid `.xlsx`, valid `.csv`, uppercase `.XLSX`,
    `.xls` (reject), `.pdf` (reject), 10 MB exactly (accept), 10 MB + 1 byte
    (reject), and a simulated 413 and 400-corrupt response. Scored by exact match
-   of the returned message against the expected string. Target: 8/8. Current: to
-   be recorded when `upload-validation.test.ts` first runs.
+   of the returned message against the expected string. Target: 8/8. Current:
+   `upload-validation.test.ts` passes 14/14 as of 2026-08-05 (7 `validateSpreadsheet`
+   incl. the exact-10 MB / 10 MB+1 boundary, 4 `describeUploadSummary`, 3
+   `describeUploadError` incl. 413 and 400-detail) — every labelled eval case
+   covered. Full suite 67/67 green; `npm run build` and `npm run lint` clean.
 3. **Feedback capture.** The chip's `error` state is the in-product correction
    signal (user sees exactly why an upload failed and can retry). No server
    logging added client-side; failures already surface through the gateway.
