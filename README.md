@@ -37,7 +37,8 @@ Authoritative live spec: `http://localhost:8000/openapi.json` (Swagger at
 | GET  | `/v1/sessions/{id}` | bearer | Full thread `{…, messages:[{id, seq, role, content, trace, model, created_at}]}`. Assistant rows whose turn called tools carry non-null `trace`. 404 = gone. |
 | DELETE | `/v1/sessions/{id}` | bearer | Delete a conversation → 204. |
 | GET  | `/v1/tools` | bearer | Tools the model can use. |
-| GET  | `/v1/files/{id}` | bearer | Download a generated file — fetch **with** the bearer header and turn the response into a blob URL (a plain `<a href>` can't send the header). |
+| GET  | `/v1/files` | bearer | The current user's generated files `{files:[{id, filename, media_type, size, created_at}]}`, newest-first and owner-scoped server-side. |
+| GET  | `/v1/files/{id}` | bearer | Download a generated file — fetch **with** the bearer header and turn the response into a blob URL (a plain `<a href>` can't send the header). Owner-scoped: 404 = not yours / gone. |
 
 Error bodies are FastAPI-style `{"detail": "..."}`. This client maps
 `404 → "model not available on the server"`, `502 → "inference service is
@@ -61,10 +62,21 @@ unavailable"`, otherwise it surfaces `detail`.
 - **Tool turns** render a collapsible **"How it worked"** trace panel
   (iterations → tool calls: name / args / status / result), for both live turns
   and rows loaded from history (`trace != null`).
-- **Files** produced by tools are parsed from the trace and fetched from
-  `/v1/files/{id}` **with** the bearer header (a plain `<a href>` can't). Branch:
-  `text/html` → sandboxed **`<iframe srcdoc>`** preview (empty sandbox — no
-  scripts) **+** download; xlsx → download only (blob URL).
+- **Files** produced by tools render **inline as cards**. Every `/v1/files/<id>`
+  reference is detected in **both** the answer text and the trace, fetched
+  **with** the bearer header (a plain `<a href>` can't), and rendered by the
+  response's real **Content-Type**: `image/svg+xml` charts show inline via
+  **`<img>`** (never innerHTML — img-loaded SVG can't run scripts) + download;
+  `text/html` previews in a sandboxed **`<iframe srcdoc>`** (empty sandbox — no
+  scripts) + download; spreadsheets and everything else get a download chip. The
+  blob URL is revoked on unmount, and the raw "GET /v1/files/…" text is stripped
+  once its card renders.
+- **My Files** — a sidebar nav entry + `/files` route lists the current user's
+  generated files (`GET /v1/files`, owner-scoped, newest-first): filename, a type
+  badge (PDF / Excel / HTML / SVG / …), a human size, and a relative time. Each
+  row's **Download** re-fetches `GET /v1/files/{id}` **with** the bearer header
+  into a blob URL; a **404** ("not yours / gone") quietly drops the row with a
+  transient notice. Loading / error-with-Retry / empty states included.
 - **Failed turns** (e.g. 502): the user's message is already saved server-side,
   so the reply bubble shows the error with a **Retry** affordance.
 
@@ -120,8 +132,9 @@ src/
     ui/         shadcn-style primitives (button, input, label, dropdown-menu, …)
     auth/       LoginPage, RegisterPage, AuthShell
     routing/    ProtectedRoute, PublicOnly, FullScreenSpinner
-    workspace/  Workspace (chat shell)
-    layout/     Header (account menu), Sidebar, StatusDot
+    workspace/  Workspace (app shell: nested routes — chat index + /files)
+    files/      FilesPage (My Files: GET /v1/files list + bearer-fetch download)
+    layout/     Header (account menu), Sidebar (chat + My Files nav), StatusDot
     chat/       ChatPanel, MessageList, MessageBubble, Composer, GenerationSettings
     agent/ embeddings/   present but unmounted (await Gateway slices in this UI)
   App.tsx       routes;  main.tsx  BrowserRouter + AuthProvider

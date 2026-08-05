@@ -367,6 +367,69 @@ export async function getSession(id: string, signal?: AbortSignal): Promise<Sess
   )
 }
 
+// --------------------------------------------------------------------------- //
+// MCP connection status — a live probe of the configured MCP server. Always
+// 200 (health is in the body, never an error status); 401 handled globally.
+// --------------------------------------------------------------------------- //
+export interface McpStatus {
+  /** Is an MCP server configured at all? */
+  configured: boolean
+  /** Did the gateway just reach + authenticate to it? */
+  reachable: boolean
+  server_url: string | null
+  tool_mode: string | null
+  /** Exposed MCP tool names (for the tooltip). */
+  tools: string[]
+  /** Reason when unreachable, else null. */
+  error: string | null
+}
+
+export async function getMcpStatus(signal?: AbortSignal): Promise<McpStatus> {
+  return request<McpStatus>('/v1/mcp/status', { method: 'GET' }, signal)
+}
+
+/**
+ * Fetch a generated file (`GET /v1/files/{id}`) WITH the bearer header — a plain
+ * <a href> can't send it. Returns the raw Response so the caller can branch on
+ * Content-Type and build a blob URL. 401 is handled globally (→ login); other
+ * non-2xx (404 unknown id, 410 gone) throw a GatewayError.
+ */
+export async function fetchFile(id: string, signal?: AbortSignal): Promise<Response> {
+  const res = await rawFetch(`/v1/files/${encodeURIComponent(id)}`, { method: 'GET' }, signal)
+  if (!res.ok) throw await errorFromResponse(res)
+  return res
+}
+
+/** A generated file the gateway tracks for the current user. */
+export interface GatewayFile {
+  id: string
+  filename: string
+  media_type: string
+  size: number
+  created_at: string
+}
+
+/**
+ * List the current user's generated files (`GET /v1/files`), newest-first and
+ * already owner-scoped server-side — no client filtering. Bearer + global 401
+ * handling come from `request`.
+ */
+export async function listFiles(signal?: AbortSignal): Promise<GatewayFile[]> {
+  const data = await request<{ files: GatewayFile[] }>('/v1/files', { method: 'GET' }, signal)
+  return data.files
+}
+
+/**
+ * Delete a generated file (`DELETE /v1/files/{id}`). 204 = deleted, 404 =
+ * already gone — both mean "it's not there anymore", so neither throws (the
+ * caller just drops the row). 401 is handled globally; other statuses throw.
+ */
+export async function deleteFile(id: string, signal?: AbortSignal): Promise<void> {
+  const res = await rawFetch(`/v1/files/${encodeURIComponent(id)}`, { method: 'DELETE' }, signal)
+  if (res.ok || res.status === 404) return
+  throw await errorFromResponse(res)
+}
+
 /** Delete a conversation (204). 404 = already gone. */
 export async function deleteSession(id: string, signal?: AbortSignal): Promise<void> {
   const res = await rawFetch(

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { Cpu } from 'lucide-react'
+import { BurstLogo } from '@/components/brand/BurstLogo'
+import { APP_NAME } from '@/lib/branding'
 
 export function AuthShell({
   title,
@@ -16,9 +17,7 @@ export function AuthShell({
     <div className="grid min-h-full place-items-center bg-background px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
-          <div className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <Cpu className="size-5" />
-          </div>
+          <BurstLogo size={44} title={APP_NAME} />
           <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
           <p className="text-sm text-muted-foreground">{subtitle}</p>
         </div>

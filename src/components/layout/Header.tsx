@@ -1,5 +1,8 @@
-import { Cpu, LogOut, Moon, PanelLeft, Sun, User } from 'lucide-react'
+import { LogOut, Moon, PanelLeft, Sun, User } from 'lucide-react'
 import { StatusDot } from './StatusDot'
+import { McpStatusBadge } from './McpStatusBadge'
+import { BurstLogo } from '@/components/brand/BurstLogo'
+import { APP_NAME } from '@/lib/branding'
 import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
@@ -50,16 +53,13 @@ export function Header({
           >
             <PanelLeft className="size-4" />
           </button>
-          <div className="grid size-6 place-items-center rounded-md bg-primary text-primary-foreground">
-            <Cpu className="size-3.5" />
-          </div>
-          <span className="hidden text-sm font-semibold tracking-tight sm:inline">
-            Ollama Workspace
-          </span>
+          <BurstLogo size={22} title={APP_NAME} />
+          <span className="hidden text-sm font-semibold tracking-tight sm:inline">{APP_NAME}</span>
         </div>
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        <McpStatusBadge />
         <StatusDot health={health} reachable={reachable} loading={loading} error={error} />
         <button
           type="button"

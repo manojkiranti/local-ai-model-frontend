@@ -40,76 +40,73 @@ export interface ToolsResponse {
   filtered_out: FilteredTool[]
 }
 
-export type DownloadKind = 'excel' | 'html' | 'file'
-
-/** A downloadable artifact extracted from a file-producing tool result. */
-export interface FileDownload {
+/** A gateway-generated file referenced by an assistant turn. */
+export interface FileRef {
   id: string
-  url: string
-  filename: string
-  kind: DownloadKind
-  bytes?: number
-  rows?: number
+  /**
+   * Best-effort filename hint parsed from the tool result string. The real name
+   * comes from the download response's Content-Disposition when the card loads.
+   */
+  filename?: string
 }
 
 // --------------------------------------------------------------------------- //
-// Trace parsing — pull download links out of the tool trace.
-// (The one non-trivial bit — unit tested. Never parse `final_answer`.)
+// File-reference parsing — find every `/v1/files/<id>` a turn produced.
+// (The one non-trivial bit — unit tested.)
 // --------------------------------------------------------------------------- //
-/**
- * Tools that write a file to the store and return a `GET /v1/files/{id}` link,
- * mapped to the artifact kind. All share the same result-string shape
- * (`Created X file '<name>' (<n> bytes[...]). Download it at: GET /v1/files/<id>`).
- */
-const FILE_TOOLS: Record<string, DownloadKind> = {
-  create_excel: 'excel',
-  create_html: 'html',
-}
 const FILE_ID_RE = /\/v1\/files\/([0-9a-f]{32})/
+const FILE_ID_RE_G = /\/v1\/files\/([0-9a-f]{32})/g
 const FILENAME_RE = /'([^']+\.[A-Za-z0-9]+)'/
-const BYTES_RE = /\((\d+)\s*bytes/i
-const ROWS_RE = /(\d+)\s*data row/i
-const DEFAULT_EXT: Record<DownloadKind, string> = {
-  excel: 'xlsx',
-  html: 'html',
-  file: 'bin',
-}
 
 /**
- * Scan every file-producing tool call that succeeded (see FILE_TOOLS) and return
- * the artifacts the user can download. Dedupes by file id (a retry can repeat
- * the same link).
+ * Collect every gateway file reference an assistant turn produced, scanning
+ * BOTH the final message text and the tool-result trace, deduped by id. A
+ * filename hint is lifted from the trace result string when present. Order:
+ * trace first (richer metadata), then any ids that appear only in the text.
+ * Works for any file-producing tool (excel, html, chart, …) — it keys off the
+ * URL shape, not a per-tool allow-list.
  */
-export function extractDownloads(trace: TraceEntry[]): FileDownload[] {
-  const out: FileDownload[] = []
-  const seen = new Set<string>()
+export function extractFileRefs(
+  content: string | null | undefined,
+  trace: TraceEntry[] | null | undefined,
+): FileRef[] {
+  const byId = new Map<string, FileRef>()
 
   for (const entry of trace ?? []) {
     for (const call of entry.tool_calls ?? []) {
-      const kind = FILE_TOOLS[call.name]
-      if (!kind || call.status !== 'ok') continue
       const result = call.result
       if (!result) continue
-
-      const idMatch = result.match(FILE_ID_RE)
-      if (!idMatch) continue
-      const id = idMatch[1]
-      if (seen.has(id)) continue
-      seen.add(id)
-
-      const bytes = result.match(BYTES_RE)
-      const rows = result.match(ROWS_RE)
-      out.push({
-        id,
-        url: fileDownloadUrl(id),
-        filename: result.match(FILENAME_RE)?.[1] ?? `${id}.${DEFAULT_EXT[kind]}`,
-        kind,
-        bytes: bytes ? Number(bytes[1]) : undefined,
-        rows: rows ? Number(rows[1]) : undefined,
-      })
+      const filename = result.match(FILENAME_RE)?.[1]
+      for (const m of result.matchAll(FILE_ID_RE_G)) {
+        const id = m[1]
+        if (!byId.has(id)) byId.set(id, filename ? { id, filename } : { id })
+      }
     }
   }
-  return out
+
+  for (const m of (content ?? '').matchAll(FILE_ID_RE_G)) {
+    const id = m[1]
+    if (!byId.has(id)) byId.set(id, { id })
+  }
+
+  return [...byId.values()]
+}
+
+/**
+ * Strip raw gateway file references out of answer text so the rendered file card
+ * stands in for them. Removes a markdown link to the file, a "Download … at:
+ * [GET] URL" lead-in, and any bare URL, then tidies leftover whitespace.
+ */
+export function stripFileRefs(text: string): string {
+  if (!text) return text
+  return text
+    // Leading \s* absorbs the separator so removal doesn't leave a double space.
+    .replace(/\s*\[[^\]]*\]\(\s*(?:GET\s+)?\/v1\/files\/[0-9a-f]{32}\s*\)/gi, '')
+    .replace(/\s*(?:you can\s+)?download[^.\n]*?(?:GET\s+)?\/v1\/files\/[0-9a-f]{32}\/?/gi, '')
+    .replace(/\s*(?:GET\s+)?\/v1\/files\/[0-9a-f]{32}\/?/gi, '')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 /** Absolute URL to download a generated file by its id. */
@@ -125,37 +122,6 @@ export async function listTools(signal?: AbortSignal): Promise<ToolsResponse> {
   const res = await fetch(apiUrl('/v1/tools'), { signal })
   if (!res.ok) throw await errorFromResponse(res)
   return res.json() as Promise<ToolsResponse>
-}
-
-/**
- * Trigger a file download. A plain GET to the file URL; the server responds
- * with the attachment. 404 = unknown id, 410 = file gone from disk.
- */
-export async function downloadFile(download: FileDownload): Promise<void> {
-  // /v1/files requires the bearer header, so a plain <a href> can't fetch it —
-  // download here and hand the browser a blob URL instead.
-  const token = getToken()
-  const res = await fetch(download.url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
-  if (!res.ok) {
-    if (res.status === 404) {
-      throw new GatewayError(404, 'This file id is unknown to the server.')
-    }
-    if (res.status === 410) {
-      throw new GatewayError(410, 'This file is no longer on the server.')
-    }
-    throw await errorFromResponse(res)
-  }
-  const blob = await res.blob()
-  const objectUrl = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = objectUrl
-  a.download = download.filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(objectUrl)
 }
 
 /** True if a link points at a gateway-generated file (`/v1/files/{id}`). */
@@ -196,28 +162,6 @@ export async function downloadByUrl(href: string): Promise<void> {
   a.click()
   a.remove()
   URL.revokeObjectURL(objectUrl)
-}
-
-/**
- * Fetch a generated file's raw text with the bearer header — used to preview an
- * HTML artifact inside a sandboxed <iframe srcdoc>. (Kept separate from
- * downloadFile, which triggers a save rather than returning content.)
- */
-export async function fetchFileText(download: FileDownload): Promise<string> {
-  const token = getToken()
-  const res = await fetch(download.url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
-  if (!res.ok) {
-    if (res.status === 404) {
-      throw new GatewayError(404, 'This file id is unknown to the server.')
-    }
-    if (res.status === 410) {
-      throw new GatewayError(410, 'This file is no longer on the server.')
-    }
-    throw await errorFromResponse(res)
-  }
-  return res.text()
 }
 
 // Re-export so callers can build links without importing config directly.

@@ -1,10 +1,11 @@
 import { AlertTriangle, RotateCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkdownContent } from './MarkdownContent'
-import { BlobMark } from './BlobMark'
-import { DownloadButton } from '@/components/agent/DownloadButton'
+import { BurstLogo } from '@/components/brand/BurstLogo'
+import { FileCard } from '@/components/agent/FileCard'
 import { TracePanel } from '@/components/agent/TracePanel'
 import { ToolTimeline } from '@/components/agent/ToolTimeline'
+import { stripFileRefs } from '@/lib/agent-api'
 import type { UIMessage } from '@/hooks/useSessions'
 
 interface MessageBubbleProps {
@@ -24,10 +25,13 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
   }
 
   const streaming = message.status === 'streaming'
+  const hasFiles = Boolean(message.files && message.files.length > 0)
+  // Once file cards render, drop the raw "GET /v1/files/…" text they replace.
+  const displayContent = hasFiles ? stripFileRefs(message.content) : message.content
 
   return (
     <div className="flex gap-3.5">
-      <BlobMark size={26} active={streaming} className="mt-0.5" />
+      <BurstLogo size={26} active={streaming} className="mt-0.5" />
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         {message.liveTools && message.liveTools.length > 0 && (
@@ -51,23 +55,22 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
               </button>
             )}
           </div>
-        ) : message.content ? (
+        ) : displayContent ? (
           <MarkdownContent className={cn(streaming && 'streaming-caret')}>
-            {message.content}
+            {displayContent}
           </MarkdownContent>
-        ) : message.liveTools && message.liveTools.length > 0 ? null : (
-          <div className="flex items-center gap-2 py-1 text-sm">
-            <BlobMark size={16} active />
+        ) : streaming && (!message.liveTools || message.liveTools.length === 0) ? (
+          <div className="flex items-center py-1 text-sm">
             <span className="thinking-shimmer font-medium">Working…</span>
           </div>
-        )}
+        ) : null}
 
         {message.trace && message.trace.length > 0 && <TracePanel trace={message.trace} />}
 
-        {message.downloads && message.downloads.length > 0 && (
+        {hasFiles && (
           <div className="flex flex-col gap-2">
-            {message.downloads.map((download) => (
-              <DownloadButton key={download.id} download={download} />
+            {message.files!.map((file) => (
+              <FileCard key={file.id} file={file} />
             ))}
           </div>
         )}

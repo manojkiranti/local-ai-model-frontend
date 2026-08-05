@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { Route, Routes } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Header } from '@/components/layout/Header'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { ChatPanel } from '@/components/chat/ChatPanel'
+import { FilesPage } from '@/components/files/FilesPage'
 import { useHealth } from '@/hooks/useHealth'
 import { useSessions } from '@/hooks/useSessions'
 import { useTheme } from '@/hooks/useTheme'
@@ -48,17 +50,25 @@ export function Workspace() {
           />
 
           <div className="min-h-0 flex-1">
-            <ChatPanel
-              messages={chat.messages}
-              sending={chat.sending}
-              loadingThread={chat.loadingThread}
-              reachable={health.reachable}
-              genConfig={genConfig}
-              onGenConfigChange={setGenConfig}
-              onSend={chat.send}
-              onRetry={chat.retry}
-              onStop={chat.stop}
-            />
+            <Routes>
+              <Route
+                index
+                element={
+                  <ChatPanel
+                    messages={chat.messages}
+                    sending={chat.sending}
+                    loadingThread={chat.loadingThread}
+                    reachable={health.reachable}
+                    genConfig={genConfig}
+                    onGenConfigChange={setGenConfig}
+                    onSend={chat.send}
+                    onRetry={chat.retry}
+                    onStop={chat.stop}
+                  />
+                }
+              />
+              <Route path="files" element={<FilesPage />} />
+            </Routes>
           </div>
         </div>
       </div>

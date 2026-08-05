@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/hooks/useAuth'
 import { emailError, passwordError } from '@/lib/auth-validation'
+import { APP_NAME, APP_TAGLINE } from '@/lib/branding'
 import { describeError } from '@/lib/api'
 import { AuthShell } from './AuthShell'
 
@@ -42,7 +43,7 @@ export function RegisterPage() {
   return (
     <AuthShell
       title="Create account"
-      subtitle="Local LLM Workspace"
+      subtitle={`${APP_NAME} — ${APP_TAGLINE}`}
       footer={
         <>
           Already have an account?{' '}

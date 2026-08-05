@@ -1,10 +1,13 @@
-import { Cpu, MessageSquare, MoreHorizontal, PanelLeft, Plus, Trash2 } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { FolderOpen, MessageSquare, MoreHorizontal, PanelLeft, Plus, Trash2 } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { BurstLogo } from '@/components/brand/BurstLogo'
+import { APP_NAME } from '@/lib/branding'
 import { cn } from '@/lib/utils'
 import type { SessionSummary } from '@/lib/api'
 
@@ -25,13 +28,25 @@ export function Sidebar({
   onDelete,
   onCollapse,
 }: SidebarProps) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const onFiles = location.pathname === '/files'
+
+  // Chat actions always return to the chat view (the sidebar shows on every page).
+  const selectChat = (id: string) => {
+    onSelect(id)
+    navigate('/')
+  }
+  const startNewChat = () => {
+    onNewChat()
+    navigate('/')
+  }
+
   return (
     <aside className="flex h-full w-68 shrink-0 flex-col border-r bg-sidebar">
       <div className="flex items-center gap-2.5 px-4 pb-2.5 pt-4">
-        <div className="grid size-[26px] shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-          <Cpu className="size-4" />
-        </div>
-        <span className="flex-1 text-sm font-semibold tracking-tight">Local LLM Workspace</span>
+        <BurstLogo size={26} title={APP_NAME} />
+        <span className="flex-1 text-sm font-semibold tracking-tight">{APP_NAME}</span>
         <button
           type="button"
           onClick={onCollapse}
@@ -42,14 +57,25 @@ export function Sidebar({
         </button>
       </div>
 
-      <div className="px-3 pb-3">
+      <div className="space-y-1.5 px-3 pb-3">
         <button
           type="button"
-          onClick={onNewChat}
+          onClick={startNewChat}
           className="flex w-full items-center gap-2.5 rounded-xl border bg-card px-3 py-2.5 text-sm font-semibold shadow-sm transition-colors hover:border-primary hover:text-primary"
         >
           <Plus className="size-4" />
           New chat
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/files')}
+          className={cn(
+            'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+            onFiles ? 'bg-primary/10 text-foreground' : 'text-foreground/80 hover:bg-muted',
+          )}
+        >
+          <FolderOpen className={cn('size-4', onFiles ? 'text-primary' : 'text-muted-foreground')} />
+          My Files
         </button>
       </div>
 
@@ -64,11 +90,11 @@ export function Sidebar({
           </p>
         ) : (
           sessions.map((session) => {
-            const active = session.id === activeId
+            const active = !onFiles && session.id === activeId
             return (
               <div
                 key={session.id}
-                onClick={() => onSelect(session.id)}
+                onClick={() => selectChat(session.id)}
                 className={cn(
                   'group flex cursor-pointer items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-sm transition-colors',
                   active
@@ -114,7 +140,7 @@ export function Sidebar({
 
       <div className="border-t px-3 py-2.5">
         <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
-          History saved on the gateway
+          History saved to your account
         </p>
       </div>
     </aside>

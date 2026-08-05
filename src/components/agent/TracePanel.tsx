@@ -13,6 +13,11 @@ const STATUS_STYLES: Record<ToolCallStatus, string> = {
 
 const MAX_RESULT = 600
 
+// Tools whose result text IS the payload the user came to read (fetched web
+// text): show it as-is — it's already bounded and marked `…[truncated]`
+// server-side, so don't re-truncate it on the client.
+const UNTRUNCATED_TOOLS = new Set(['fetch_url'])
+
 function formatArgs(args: ToolCall['arguments']): string {
   if (typeof args === 'string') return args
   try {
@@ -24,7 +29,7 @@ function formatArgs(args: ToolCall['arguments']): string {
 
 function ToolCallRow({ call }: { call: ToolCall }) {
   const result = call.result ?? ''
-  const truncated = result.length > MAX_RESULT
+  const truncated = !UNTRUNCATED_TOOLS.has(call.name) && result.length > MAX_RESULT
   return (
     <div className="rounded-lg border bg-background p-2.5">
       <div className="flex items-center gap-2">
@@ -54,7 +59,9 @@ function ToolCallRow({ call }: { call: ToolCall }) {
             <div className="mb-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               result
             </div>
-            <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-[11px] leading-relaxed">
+            {/* Plain-text only (JSX text node) — tool results are untrusted
+                display content: never HTML / dangerouslySetInnerHTML. */}
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-[11px] leading-relaxed">
               {truncated ? `${result.slice(0, MAX_RESULT)}…` : result}
             </pre>
           </div>

@@ -50,9 +50,9 @@ export function ChatPanel({
         <div className="mx-6 mt-3.5 flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-3 text-amber-700 dark:text-amber-400">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <div className="text-[13px] leading-relaxed">
-            <div className="font-semibold">Gateway offline</div>
+            <div className="font-semibold">Service unavailable</div>
             <div className="text-foreground/70">
-              Can't reach the gateway. Start it and this panel reconnects on its own.
+              Can't reach the assistant right now — this panel reconnects on its own.
             </div>
           </div>
         </div>

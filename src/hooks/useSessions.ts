@@ -11,7 +11,7 @@ import {
   type ToolCallStatus,
   type TraceEntry,
 } from '@/lib/api'
-import { extractDownloads, type FileDownload } from '@/lib/agent-api'
+import { extractFileRefs, type FileRef } from '@/lib/agent-api'
 
 export type MessageStatus = 'streaming' | 'done' | 'error'
 
@@ -33,7 +33,7 @@ export interface UIMessage {
   trace?: TraceEntry[] | null
   /** Live tool timeline while streaming; cleared once the turn is done. */
   liveTools?: LiveTool[]
-  downloads?: FileDownload[]
+  files?: FileRef[]
   model?: string | null
   /** Present on a failed assistant turn — the user text to re-send on Retry. */
   retryText?: string
@@ -66,7 +66,7 @@ function threadToUI(m: ThreadMessage): UIMessage {
     content: m.content,
     status: 'done',
     trace: m.trace,
-    downloads: m.trace ? extractDownloads(m.trace) : undefined,
+    files: extractFileRefs(m.content, m.trace),
     model: m.model,
   }
 }
@@ -201,16 +201,19 @@ export function useSessions() {
                 trace,
               }))
             } else {
-              patch(assistantId, (m) => ({
-                status: 'done',
-                content:
+              patch(assistantId, (m) => {
+                const finalContent =
                   m.content ||
                   ev.final_answer ||
-                  '_The model finished without a text answer._',
-                trace,
-                downloads: trace ? extractDownloads(trace) : undefined,
-                liveTools: undefined,
-              }))
+                  '_The model finished without a text answer._'
+                return {
+                  status: 'done',
+                  content: finalContent,
+                  trace,
+                  files: extractFileRefs(finalContent, trace),
+                  liveTools: undefined,
+                }
+              })
             }
           }
         }
@@ -266,7 +269,7 @@ export function useSessions() {
         error: undefined,
         retryText: undefined,
         trace: undefined,
-        downloads: undefined,
+        files: undefined,
         liveTools: undefined,
       }))
       void runTurn(assistantId, text, options)

@@ -1,12 +1,16 @@
 import { useEffect, useRef } from 'react'
-import { ArrowRight, Cpu } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
+import { BurstLogo } from '@/components/brand/BurstLogo'
+import { APP_NAME } from '@/lib/branding'
 import type { UIMessage } from '@/hooks/useSessions'
 
+// Clickable starter prompts — each one exercises a real tool the gateway exposes
+// (employee records, web lookup, file generation).
 const EXAMPLES = [
-  'Explain what Ollama is in two sentences.',
-  'Write a haiku about local language models.',
-  'Give me a curl command that streams JSON from the gateway.',
+  'Get the employee details from the HR system.',
+  'Look up https://www.nicasiabank.com/ and summarise what NIC Asia Bank offers.',
+  'Generate an Excel list of all employees with their departments.',
 ]
 
 interface MessageListProps {
@@ -27,15 +31,13 @@ export function MessageList({ messages, onExample, canSend, onRetry }: MessageLi
   if (messages.length === 0) {
     return (
       <div className="mx-auto flex w-full max-w-[660px] flex-col items-start px-6 pb-6 pt-[11vh]">
-        <div className="mb-5 grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary">
-          <Cpu className="size-6" />
-        </div>
+        <BurstLogo size={46} title={APP_NAME} className="mb-5" />
         <h1 className="text-[31px] font-semibold leading-tight tracking-tight text-pretty">
-          What should we run locally?
+          What can I help you with?
         </h1>
-        <p className="mt-2 max-w-[46ch] text-[15px] leading-relaxed text-muted-foreground text-pretty">
-          Everything stays on your machine — this workspace talks straight to your
-          Ollama gateway.
+        <p className="mt-2 max-w-[52ch] text-[15px] leading-relaxed text-muted-foreground text-pretty">
+          Ask a question, pull up employee records, research a company from its
+          website, or turn the answer into a spreadsheet, document, or chart.
         </p>
         <div className="mt-6 flex w-full flex-col gap-2">
           {EXAMPLES.map((example) => (

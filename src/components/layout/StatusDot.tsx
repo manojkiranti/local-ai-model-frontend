@@ -28,7 +28,7 @@ export function StatusDot({ health, reachable, loading, error }: StatusDotProps)
       ? 'Connected'
       : state === 'loading'
         ? 'Checking…'
-        : 'Gateway offline'
+        : 'Service offline'
   const labelColor =
     state === 'offline' ? 'text-destructive' : 'text-foreground/70'
 
@@ -47,16 +47,17 @@ export function StatusDot({ health, reachable, loading, error }: StatusDotProps)
       </TooltipTrigger>
       <TooltipContent side="bottom" align="end">
         {health ? (
+          // Deliberately does NOT show the inference host URL — that's internal
+          // infrastructure, not something end users need (or should) see.
           <div className="space-y-0.5 font-mono leading-relaxed">
-            <div>{health.ollama.base_url}</div>
             <div>chat · {health.default_chat_model}</div>
             <div>embed · {health.default_embed_model}</div>
             {!health.ollama.reachable && (
-              <div className="text-amber-400">ollama unreachable</div>
+              <div className="text-amber-400">model service unreachable</div>
             )}
           </div>
         ) : (
-          <span>{error ?? 'Checking gateway…'}</span>
+          <span>{error ?? 'Checking service…'}</span>
         )}
       </TooltipContent>
     </Tooltip>

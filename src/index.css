@@ -195,42 +195,21 @@
   animation: thinking-shimmer 1.8s linear infinite;
 }
 
-/* Organic "living" assistant mark — a gradient blob that morphs and rotates. */
-@keyframes blob-morph {
+/* Radial-burst brand mark — pulses (grow/shrink) while the assistant is answering. */
+@keyframes burst-pulse {
   0%,
   100% {
-    border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%;
+    transform: scale(1);
   }
-  33% {
-    border-radius: 63% 37% 44% 56% / 56% 63% 37% 44%;
-  }
-  66% {
-    border-radius: 37% 63% 56% 44% / 63% 41% 59% 37%;
+  50% {
+    transform: scale(0.82);
   }
 }
-@keyframes blob-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.blob-mark {
-  display: inline-block;
-  flex-shrink: 0;
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--color-primary) 88%, black) 0%,
-    var(--color-primary) 45%,
-    color-mix(in oklab, var(--color-primary) 45%, white) 100%
-  );
-  border-radius: 42% 58% 63% 37% / 41% 44% 56% 59%;
-  filter: drop-shadow(0 1px 4px color-mix(in oklab, var(--color-primary) 35%, transparent));
-  animation:
-    blob-morph 8s ease-in-out infinite,
-    blob-spin 16s linear infinite;
-}
-.blob-mark--active {
-  animation-duration: 3.4s, 9s;
-  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--color-primary) 55%, transparent));
+.burst-pulse {
+  /* fill-box + center = scale around the burst's own centre, cross-browser. */
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: burst-pulse 1.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
