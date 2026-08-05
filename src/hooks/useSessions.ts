@@ -97,6 +97,7 @@ export function useSessions() {
 
   const controllerRef = useRef<AbortController | null>(null)
   const activeIdRef = useRef<string | null>(null)
+  // eslint-disable-next-line react-hooks/refs -- latest-value ref, intentionally synced during render
   activeIdRef.current = activeId
 
   const refreshSessions = useCallback(async () => {
@@ -108,6 +109,7 @@ export function useSessions() {
   }, [])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load session list on mount
     refreshSessions()
   }, [refreshSessions])
 
