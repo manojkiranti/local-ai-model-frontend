@@ -22,6 +22,12 @@ export interface LiveTool {
   iteration: number
 }
 
+export interface AttachmentDescriptor {
+  id: string
+  filename: string
+  summaryLine: string
+}
+
 /** One rendered chat bubble — from server history or an in-flight optimistic turn. */
 export interface UIMessage {
   id: string
@@ -37,6 +43,10 @@ export interface UIMessage {
   model?: string | null
   /** Present on a failed assistant turn — the user text to re-send on Retry. */
   retryText?: string
+  /** file_ids to re-send on Retry (mirrors the original turn's attachment). */
+  retryFileIds?: string[]
+  /** Present on a user bubble that carried an uploaded spreadsheet. */
+  attachment?: { filename: string; summaryLine: string }
 }
 
 function uid(): string {
@@ -153,7 +163,12 @@ export function useSessions() {
 
   /** Execute one turn against `assistantId`, reused by send() and retry(). */
   const runTurn = useCallback(
-    async (assistantId: string, text: string, options?: Record<string, unknown>) => {
+    async (
+      assistantId: string,
+      text: string,
+      options?: Record<string, unknown>,
+      fileIds?: string[],
+    ) => {
       const sessionForTurn = activeIdRef.current ?? undefined
       const controller = new AbortController()
       controllerRef.current = controller
@@ -169,7 +184,12 @@ export function useSessions() {
 
       try {
         const { sessionId, events } = await openChatStream(
-          { session_id: sessionForTurn, message: text, options },
+          {
+            session_id: sessionForTurn,
+            message: text,
+            options,
+            ...(fileIds && fileIds.length ? { file_ids: fileIds } : {}),
+          },
           controller.signal,
         )
         adopt(sessionId)
@@ -197,6 +217,7 @@ export function useSessions() {
                 status: 'error',
                 error: ev.error_message ?? 'The model reported an error.',
                 retryText: text,
+                retryFileIds: fileIds,
                 liveTools: undefined,
                 trace,
               }))
@@ -231,10 +252,17 @@ export function useSessions() {
             liveTools: undefined,
           }))
         } else {
+          const message =
+            e instanceof GatewayError &&
+            e.status === 404 &&
+            e.message.toLowerCase().includes('attached file not found')
+              ? 'That file is no longer available.'
+              : describeError(e)
           patch(assistantId, () => ({
             status: 'error',
-            error: describeError(e),
+            error: message,
             retryText: text,
+            retryFileIds: fileIds,
             liveTools: undefined,
           }))
           // The user message may have been persisted (e.g. 502) — refresh the list.
@@ -249,32 +277,48 @@ export function useSessions() {
   )
 
   const send = useCallback(
-    (text: string, options?: Record<string, unknown>) => {
+    (text: string, options?: Record<string, unknown>, attachment?: AttachmentDescriptor) => {
       const assistantId = uid()
       setMessages((prev) => [
         ...prev,
-        { id: uid(), role: 'user', content: text, status: 'done' },
+        {
+          id: uid(),
+          role: 'user',
+          content: text,
+          status: 'done',
+          ...(attachment
+            ? { attachment: { filename: attachment.filename, summaryLine: attachment.summaryLine } }
+            : {}),
+        },
         { id: assistantId, role: 'assistant', content: '', status: 'streaming' },
       ])
-      void runTurn(assistantId, text, options)
+      void runTurn(assistantId, text, options, attachment ? [attachment.id] : undefined)
     },
     [runTurn],
   )
 
   const retry = useCallback(
     (assistantId: string, text: string, options?: Record<string, unknown>) => {
-      patch(assistantId, () => ({
-        status: 'streaming',
-        content: '',
-        error: undefined,
-        retryText: undefined,
-        trace: undefined,
-        files: undefined,
-        liveTools: undefined,
-      }))
-      void runTurn(assistantId, text, options)
+      let fileIds: string[] | undefined
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== assistantId) return m
+          fileIds = m.retryFileIds
+          return {
+            ...m,
+            status: 'streaming',
+            content: '',
+            error: undefined,
+            retryText: undefined,
+            trace: undefined,
+            files: undefined,
+            liveTools: undefined,
+          }
+        }),
+      )
+      void runTurn(assistantId, text, options, fileIds)
     },
-    [patch, runTurn],
+    [runTurn],
   )
 
   const stop = useCallback(() => controllerRef.current?.abort(), [])
