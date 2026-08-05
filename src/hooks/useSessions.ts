@@ -299,11 +299,12 @@ export function useSessions() {
 
   const retry = useCallback(
     (assistantId: string, text: string, options?: Record<string, unknown>) => {
-      let fileIds: string[] | undefined
+      // Read fileIds from the current messages before updating state
+      const fileIds = messages.find((m) => m.id === assistantId)?.retryFileIds
+
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== assistantId) return m
-          fileIds = m.retryFileIds
           return {
             ...m,
             status: 'streaming',
@@ -313,12 +314,13 @@ export function useSessions() {
             trace: undefined,
             files: undefined,
             liveTools: undefined,
+            retryFileIds: undefined,
           }
         }),
       )
       void runTurn(assistantId, text, options, fileIds)
     },
-    [runTurn],
+    [runTurn, messages],
   )
 
   const stop = useCallback(() => controllerRef.current?.abort(), [])

@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, FileSpreadsheet, Loader2, Paperclip, Square, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Attachment } from '@/hooks/useAttachment'
-import { UPLOAD_ACCEPT } from '@/lib/upload-validation'
-import { describeUploadSummary } from '@/lib/upload-validation'
+import { UPLOAD_ACCEPT, describeUploadSummary } from '@/lib/upload-validation'
 
 interface ComposerProps {
   onSend: (text: string) => void
