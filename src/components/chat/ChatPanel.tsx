@@ -1,6 +1,8 @@
 import { AlertTriangle, Loader2, Wrench } from 'lucide-react'
 import { toOllamaOptions, type GenerationConfig } from '@/lib/chat-config'
-import type { UIMessage } from '@/hooks/useSessions'
+import type { AttachmentDescriptor, UIMessage } from '@/hooks/useSessions'
+import { useAttachment } from '@/hooks/useAttachment'
+import { describeUploadSummary } from '@/lib/upload-validation'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
 import { GenerationSettings } from './GenerationSettings'
@@ -12,7 +14,11 @@ interface ChatPanelProps {
   reachable: boolean
   genConfig: GenerationConfig
   onGenConfigChange: (config: GenerationConfig) => void
-  onSend: (text: string, options?: Record<string, unknown>) => void
+  onSend: (
+    text: string,
+    options?: Record<string, unknown>,
+    attachment?: AttachmentDescriptor,
+  ) => void
   onRetry: (assistantId: string, text: string, options?: Record<string, unknown>) => void
   onStop: () => void
 }
@@ -28,7 +34,20 @@ export function ChatPanel({
   onRetry,
   onStop,
 }: ChatPanelProps) {
-  const handleSend = (text: string) => onSend(text, toOllamaOptions(genConfig))
+  const { attachment, pick, clear } = useAttachment()
+
+  const handleSend = (text: string) => {
+    const descriptor =
+      attachment?.status === 'ready'
+        ? {
+            id: attachment.file.id,
+            filename: attachment.file.filename,
+            summaryLine: describeUploadSummary(attachment.file.summary),
+          }
+        : undefined
+    onSend(text, toOllamaOptions(genConfig), descriptor)
+    clear()
+  }
   const handleRetry = (assistantId: string, text: string) =>
     onRetry(assistantId, text, toOllamaOptions(genConfig))
 
@@ -79,6 +98,9 @@ export function ChatPanel({
         streaming={sending}
         disabled={!reachable}
         placeholder="Send a message — the model uses tools when useful…"
+        attachment={attachment}
+        onPickFile={pick}
+        onClearAttachment={clear}
       />
     </div>
   )
