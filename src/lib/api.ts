@@ -62,6 +62,7 @@ export interface ChatTurnRequest {
   message: string
   model?: string
   options?: Record<string, unknown>
+  file_ids?: string[]
 }
 
 /** One row in a persisted conversation thread (GET /v1/sessions/{id}). */
@@ -240,7 +241,7 @@ async function rawFetch(
   signal?: AbortSignal,
 ): Promise<Response> {
   const headers = new Headers(init.headers)
-  if (init.body && !headers.has('Content-Type')) {
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
   const token = getToken()
@@ -400,22 +401,64 @@ export async function fetchFile(id: string, signal?: AbortSignal): Promise<Respo
   return res
 }
 
+export type FileSource = 'uploaded' | 'generated'
+
+export interface SheetSummary {
+  name: string
+  rows: number
+  cols: number
+  headers: string[]
+}
+
+export interface UploadSummary {
+  kind: string
+  total_rows: number
+  sheets?: SheetSummary[]
+}
+
+export interface UploadedFile {
+  id: string
+  filename: string
+  media_type: string
+  size: number
+  source: FileSource
+  summary: UploadSummary
+}
+
 /** A generated file the gateway tracks for the current user. */
 export interface GatewayFile {
   id: string
   filename: string
   media_type: string
   size: number
+  source: FileSource
   created_at: string
 }
 
 /**
- * List the current user's generated files (`GET /v1/files`), newest-first and
+ * Upload a spreadsheet (`POST /v1/files`, multipart). The browser sets the
+ * multipart Content-Type/boundary — do NOT set it manually. Bearer + global 401
+ * come from `rawFetch`; non-2xx throws a GatewayError carrying the detail.
+ */
+export async function uploadFile(file: File, signal?: AbortSignal): Promise<UploadedFile> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await rawFetch('/v1/files', { method: 'POST', body: form }, signal)
+  if (!res.ok) throw await errorFromResponse(res)
+  return res.json() as Promise<UploadedFile>
+}
+
+/**
+ * List the current user's files (`GET /v1/files`), newest-first and
  * already owner-scoped server-side — no client filtering. Bearer + global 401
  * handling come from `request`.
  */
-export async function listFiles(signal?: AbortSignal): Promise<GatewayFile[]> {
-  const data = await request<{ files: GatewayFile[] }>('/v1/files', { method: 'GET' }, signal)
+export async function listFiles(
+  source?: FileSource,
+  signal?: AbortSignal,
+): Promise<GatewayFile[]> {
+  const path = source ? `/v1/files?source=${source}` : '/v1/files'
+  const data = await request<{ files: GatewayFile[] }>(path, { method: 'GET' }, signal)
   return data.files
 }
 

@@ -3,9 +3,11 @@ import {
   cosineSimilarity,
   describeError,
   getMe,
+  listFiles,
   login,
   readNdjson,
   register,
+  uploadFile,
   GatewayError,
 } from '@/lib/api'
 import {
@@ -185,5 +187,64 @@ describe('describeError mapping', () => {
     expect(describeError(new GatewayError(409, 'Email already registered'))).toBe(
       'Email already registered',
     )
+  })
+})
+
+describe('file endpoints', () => {
+  beforeEach(() => {
+    clearToken()
+    registerUnauthorizedHandler(() => {})
+    setToken('tok.abc')
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+    clearToken()
+  })
+
+  it('uploadFile posts FormData with the file and NO manual Content-Type', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse(
+        { id: 'abc', filename: 'sales.xlsx', media_type: 'x', size: 10, source: 'uploaded', summary: { kind: 'Excel', total_rows: 1 } },
+        201,
+      ),
+    )
+    const file = new File(['a,b\n1,2\n'], 'sales.csv', { type: 'text/csv' })
+    const out = await uploadFile(file)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe('http://localhost:8000/v1/files')
+    expect(init!.method).toBe('POST')
+    expect(init!.body).toBeInstanceOf(FormData)
+    expect((init!.body as FormData).get('file')).toBeInstanceOf(File)
+    // The multipart boundary must be browser-set — no manual JSON content-type.
+    expect(new Headers(init!.headers).get('Content-Type')).toBeNull()
+    expect(new Headers(init!.headers).get('Authorization')).toBe('Bearer tok.abc')
+    expect(out.id).toBe('abc')
+  })
+
+  it('uploadFile throws GatewayError with the detail on non-2xx', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'could not read the spreadsheet' }, 400),
+    )
+    const file = new File(['x'], 'bad.xlsx')
+    await expect(uploadFile(file)).rejects.toMatchObject({
+      status: 400,
+      message: 'could not read the spreadsheet',
+    })
+  })
+
+  it('listFiles(source) sends the ?source= query param', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ files: [] }),
+    )
+    await listFiles('uploaded')
+    expect(String(fetchMock.mock.calls[0][0])).toBe('http://localhost:8000/v1/files?source=uploaded')
+  })
+
+  it('listFiles() with no source hits the bare endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ files: [] }),
+    )
+    await listFiles()
+    expect(String(fetchMock.mock.calls[0][0])).toBe('http://localhost:8000/v1/files')
   })
 })
