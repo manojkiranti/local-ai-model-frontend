@@ -12,6 +12,7 @@ import {
   type TraceEntry,
 } from '@/lib/api'
 import { extractFileRefs, type FileRef } from '@/lib/agent-api'
+import { uid } from '@/lib/uid'
 
 export type MessageStatus = 'streaming' | 'done' | 'error'
 
@@ -47,10 +48,6 @@ export interface UIMessage {
   retryFileIds?: string[]
   /** Present on a user bubble that carried an uploaded spreadsheet. */
   attachment?: { filename: string; summaryLine: string }
-}
-
-function uid(): string {
-  return crypto.randomUUID()
 }
 
 /** Mark the most recent still-running call with this name as finished. */
