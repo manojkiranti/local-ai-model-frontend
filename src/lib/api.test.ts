@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   cosineSimilarity,
+  createDepartmentTextDocument,
   describeError,
   getMe,
+  getIngestJob,
+  listDepartmentDocuments,
+  listDepartments,
   listFiles,
   login,
   readNdjson,
   register,
   uploadFile,
+  uploadDepartmentDocument,
   GatewayError,
 } from '@/lib/api'
 import {
@@ -246,5 +251,91 @@ describe('file endpoints', () => {
     )
     await listFiles()
     expect(String(fetchMock.mock.calls[0][0])).toBe('http://localhost:8000/v1/files')
+  })
+})
+
+describe('department RAG endpoints', () => {
+  beforeEach(() => {
+    clearToken()
+    registerUnauthorizedHandler(() => {})
+    setToken('tok.rag')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    clearToken()
+  })
+
+  it('lists the authenticated user departments', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse([]))
+    await listDepartments()
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe('http://localhost:8000/v1/departments')
+    expect(new Headers(init!.headers).get('Authorization')).toBe('Bearer tok.rag')
+  })
+
+  it('uploads a department document as multipart with title and file', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ document_id: 'doc-1', job_id: 'job-1', status: 'queued' }, 202),
+    )
+    const file = new File(['data'], 'policy.pdf', { type: 'application/pdf' })
+    await uploadDepartmentDocument('human-resources', 'Leave policy', file)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe(
+      'http://localhost:8000/v1/departments/human-resources/documents',
+    )
+    expect(init!.body).toBeInstanceOf(FormData)
+    expect((init!.body as FormData).get('title')).toBe('Leave policy')
+    expect((init!.body as FormData).get('file')).toBeInstanceOf(File)
+    expect(new Headers(init!.headers).get('Content-Type')).toBeNull()
+  })
+
+  it('posts typed knowledge and polls the returned ingestion job', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ document_id: 'doc-1', job_id: 'job-1', status: 'queued' }, 202),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 'job-1',
+          document_id: 'doc-1',
+          status: 'running',
+          chunks_total: 3,
+          chunks_done: 1,
+          attempts: 1,
+          error: null,
+          created_at: '2026-08-09T00:00:00Z',
+          finished_at: null,
+        }),
+      )
+    await createDepartmentTextDocument('hr', { title: 'Policy', content: 'Text' })
+    await getIngestJob('job-1')
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      'http://localhost:8000/v1/departments/hr/documents/text',
+    )
+    expect(JSON.parse(fetchMock.mock.calls[0][1]!.body as string)).toEqual({
+      title: 'Policy',
+      content: 'Text',
+    })
+    expect(String(fetchMock.mock.calls[1][0])).toBe(
+      'http://localhost:8000/v1/ingest-jobs/job-1',
+    )
+  })
+
+  it('adds include_archived only when requested', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse([]))
+    await listDepartmentDocuments('finance', true)
+    await listDepartmentDocuments('finance')
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      'http://localhost:8000/v1/departments/finance/documents?include_archived=true',
+    )
+    expect(String(fetchMock.mock.calls[1][0])).toBe(
+      'http://localhost:8000/v1/departments/finance/documents',
+    )
   })
 })

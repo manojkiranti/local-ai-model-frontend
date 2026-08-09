@@ -63,6 +63,8 @@ export interface ChatTurnRequest {
   model?: string
   options?: Record<string, unknown>
   file_ids?: string[]
+  /** Present only when creating a new department-bound conversation. */
+  department?: string
 }
 
 /** One row in a persisted conversation thread (GET /v1/sessions/{id}). */
@@ -80,7 +82,7 @@ export interface ThreadMessage {
 /** Sidebar row (GET /v1/sessions), sorted newest-updated first by the server. */
 export interface SessionSummary {
   id: string
-  title: string
+  title: string | null
   created_at: string
   updated_at: string
   message_count: number
@@ -88,7 +90,7 @@ export interface SessionSummary {
 
 export interface SessionDetail {
   id: string
-  title: string
+  title: string | null
   created_at: string
   updated_at: string
   messages: ThreadMessage[]
@@ -291,6 +293,18 @@ export async function getMe(signal?: AbortSignal): Promise<UserOut> {
   return request<UserOut>('/users/me', { method: 'GET' }, signal)
 }
 
+export interface UserListResponse {
+  total: number
+  limit: number
+  offset: number
+  items: UserOut[]
+}
+
+/** Admin-only user list, used when granting department membership. */
+export async function listUsers(signal?: AbortSignal): Promise<UserListResponse> {
+  return request<UserListResponse>('/users?limit=200', { method: 'GET' }, signal)
+}
+
 // --------------------------------------------------------------------------- //
 // Endpoints
 // --------------------------------------------------------------------------- //
@@ -481,6 +495,188 @@ export async function deleteSession(id: string, signal?: AbortSignal): Promise<v
     signal,
   )
   if (!res.ok && res.status !== 204) throw await errorFromResponse(res)
+}
+
+// --------------------------------------------------------------------------- //
+// Department-scoped RAG
+// --------------------------------------------------------------------------- //
+export interface Department {
+  id: number
+  code: string
+  name: string
+  is_active: boolean
+  created_at: string
+}
+
+export interface DepartmentMember {
+  user_id: number
+  department_id: number
+  granted_by: number | null
+  granted_at: string
+}
+
+export interface DepartmentDocument {
+  id: string
+  department_id: number
+  title: string
+  source: string
+  file_type: string
+  file_name: string | null
+  status: string
+  chunk_count: number
+  created_at: string
+  embed_model?: string | null
+  embed_dim?: number | null
+  updated_at?: string
+}
+
+export interface IngestAccepted {
+  document_id: string
+  job_id: string
+  status: string
+}
+
+export interface IngestJob {
+  id: string
+  document_id: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed'
+  chunks_total: number | null
+  chunks_done: number
+  attempts: number
+  error: string | null
+  created_at: string
+  finished_at: string | null
+}
+
+export async function listDepartments(signal?: AbortSignal): Promise<Department[]> {
+  return request<Department[]>('/v1/departments', { method: 'GET' }, signal)
+}
+
+export async function createDepartment(
+  body: { code: string; name: string },
+  signal?: AbortSignal,
+): Promise<Department> {
+  return request<Department>(
+    '/v1/departments',
+    { method: 'POST', body: JSON.stringify(body) },
+    signal,
+  )
+}
+
+export async function updateDepartment(
+  code: string,
+  body: { name?: string; is_active?: boolean },
+  signal?: AbortSignal,
+): Promise<Department> {
+  return request<Department>(
+    `/v1/departments/${encodeURIComponent(code)}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+    signal,
+  )
+}
+
+export async function listDepartmentMembers(
+  code: string,
+  signal?: AbortSignal,
+): Promise<DepartmentMember[]> {
+  return request<DepartmentMember[]>(
+    `/v1/departments/${encodeURIComponent(code)}/members`,
+    { method: 'GET' },
+    signal,
+  )
+}
+
+export async function grantDepartmentMember(
+  code: string,
+  userId: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await rawFetch(
+    `/v1/departments/${encodeURIComponent(code)}/members`,
+    { method: 'POST', body: JSON.stringify({ user_id: userId }) },
+    signal,
+  )
+  if (!res.ok) throw await errorFromResponse(res)
+}
+
+export async function revokeDepartmentMember(
+  code: string,
+  userId: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await rawFetch(
+    `/v1/departments/${encodeURIComponent(code)}/members/${userId}`,
+    { method: 'DELETE' },
+    signal,
+  )
+  if (!res.ok) throw await errorFromResponse(res)
+}
+
+export async function listDepartmentDocuments(
+  code: string,
+  includeArchived = false,
+  signal?: AbortSignal,
+): Promise<DepartmentDocument[]> {
+  const query = includeArchived ? '?include_archived=true' : ''
+  return request<DepartmentDocument[]>(
+    `/v1/departments/${encodeURIComponent(code)}/documents${query}`,
+    { method: 'GET' },
+    signal,
+  )
+}
+
+export async function uploadDepartmentDocument(
+  code: string,
+  title: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<IngestAccepted> {
+  const form = new FormData()
+  form.append('title', title)
+  form.append('file', file)
+  const res = await rawFetch(
+    `/v1/departments/${encodeURIComponent(code)}/documents`,
+    { method: 'POST', body: form },
+    signal,
+  )
+  if (!res.ok) throw await errorFromResponse(res)
+  return res.json() as Promise<IngestAccepted>
+}
+
+export async function createDepartmentTextDocument(
+  code: string,
+  body: { title: string; content: string },
+  signal?: AbortSignal,
+): Promise<IngestAccepted> {
+  return request<IngestAccepted>(
+    `/v1/departments/${encodeURIComponent(code)}/documents/text`,
+    { method: 'POST', body: JSON.stringify(body) },
+    signal,
+  )
+}
+
+export async function getIngestJob(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<IngestJob> {
+  return request<IngestJob>(
+    `/v1/ingest-jobs/${encodeURIComponent(jobId)}`,
+    { method: 'GET' },
+    signal,
+  )
+}
+
+export async function archiveDepartmentDocument(
+  code: string,
+  documentId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await rawFetch(
+    `/v1/departments/${encodeURIComponent(code)}/documents/${encodeURIComponent(documentId)}`,
+    { method: 'DELETE' },
+    signal,
+  )
+  if (!res.ok) throw await errorFromResponse(res)
 }
 
 // --------------------------------------------------------------------------- //

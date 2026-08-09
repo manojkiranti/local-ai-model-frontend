@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { FolderOpen, MessageSquare, MoreHorizontal, PanelLeft, Plus, Trash2 } from 'lucide-react'
+import { FolderOpen, MessageSquare, MoreHorizontal, PanelLeft, Plus, Settings2, Trash2 } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +18,7 @@ interface SidebarProps {
   onNewChat: () => void
   onDelete: (id: string) => void
   onCollapse: () => void
+  isAdmin: boolean
 }
 
 export function Sidebar({
@@ -27,10 +28,12 @@ export function Sidebar({
   onNewChat,
   onDelete,
   onCollapse,
+  isAdmin,
 }: SidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
   const onFiles = location.pathname === '/files'
+  const onAdmin = location.pathname === '/admin'
 
   // Chat actions always return to the chat view (the sidebar shows on every page).
   const selectChat = (id: string) => {
@@ -77,6 +80,19 @@ export function Sidebar({
           <FolderOpen className={cn('size-4', onFiles ? 'text-primary' : 'text-muted-foreground')} />
           My Files
         </button>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => navigate('/admin')}
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+              onAdmin ? 'bg-primary/10 text-foreground' : 'text-foreground/80 hover:bg-muted',
+            )}
+          >
+            <Settings2 className={cn('size-4', onAdmin ? 'text-primary' : 'text-muted-foreground')} />
+            RAG Admin
+          </button>
+        )}
       </div>
 
       <div className="px-5 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
@@ -90,7 +106,7 @@ export function Sidebar({
           </p>
         ) : (
           sessions.map((session) => {
-            const active = !onFiles && session.id === activeId
+            const active = !onFiles && !onAdmin && session.id === activeId
             return (
               <div
                 key={session.id}
@@ -108,7 +124,7 @@ export function Sidebar({
                     active ? 'text-primary' : 'text-muted-foreground',
                   )}
                 />
-                <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                <span className="min-w-0 flex-1 truncate">{session.title || 'Untitled chat'}</span>
                 {session.message_count > 0 && (
                   <span className="font-mono text-[10px] text-muted-foreground">
                     {session.message_count}

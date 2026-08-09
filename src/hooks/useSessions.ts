@@ -167,6 +167,7 @@ export function useSessions() {
       text: string,
       options?: Record<string, unknown>,
       fileIds?: string[],
+      department?: string,
     ) => {
       const sessionForTurn = activeIdRef.current ?? undefined
       const controller = new AbortController()
@@ -188,6 +189,7 @@ export function useSessions() {
             message: text,
             options,
             ...(fileIds && fileIds.length ? { file_ids: fileIds } : {}),
+            ...(!sessionForTurn && department ? { department } : {}),
           },
           controller.signal,
         )
@@ -252,11 +254,13 @@ export function useSessions() {
           }))
         } else {
           const message =
-            e instanceof GatewayError &&
-            e.status === 404 &&
-            e.message.toLowerCase().includes('attached file not found')
-              ? 'That file is no longer available.'
-              : describeError(e)
+            e instanceof GatewayError && e.status === 409
+              ? 'This conversation belongs to a different department. Start a new chat in this department.'
+              : e instanceof GatewayError &&
+                  e.status === 404 &&
+                  e.message.toLowerCase().includes('attached file not found')
+                ? 'That file is no longer available.'
+                : describeError(e)
           patch(assistantId, () => ({
             status: 'error',
             error: message,
@@ -276,7 +280,12 @@ export function useSessions() {
   )
 
   const send = useCallback(
-    (text: string, options?: Record<string, unknown>, attachment?: AttachmentDescriptor) => {
+    (
+      text: string,
+      options?: Record<string, unknown>,
+      attachment?: AttachmentDescriptor,
+      department?: string,
+    ) => {
       const assistantId = uid()
       setMessages((prev) => [
         ...prev,
@@ -291,7 +300,13 @@ export function useSessions() {
         },
         { id: assistantId, role: 'assistant', content: '', status: 'streaming' },
       ])
-      void runTurn(assistantId, text, options, attachment ? [attachment.id] : undefined)
+      void runTurn(
+        assistantId,
+        text,
+        options,
+        attachment ? [attachment.id] : undefined,
+        department,
+      )
     },
     [runTurn],
   )

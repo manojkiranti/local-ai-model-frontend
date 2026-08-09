@@ -1,6 +1,7 @@
-import { AlertTriangle, Loader2, Wrench } from 'lucide-react'
+import { AlertTriangle, Building2, Globe2, Loader2, Wrench } from 'lucide-react'
 import { toOllamaOptions, type GenerationConfig } from '@/lib/chat-config'
 import type { AttachmentDescriptor, UIMessage } from '@/hooks/useSessions'
+import type { Department } from '@/lib/api'
 import { useAttachment } from '@/hooks/useAttachment'
 import { describeUploadSummary } from '@/lib/upload-validation'
 import { MessageList } from './MessageList'
@@ -18,9 +19,15 @@ interface ChatPanelProps {
     text: string,
     options?: Record<string, unknown>,
     attachment?: AttachmentDescriptor,
+    department?: string,
   ) => void
   onRetry: (assistantId: string, text: string, options?: Record<string, unknown>) => void
   onStop: () => void
+  departments: Department[]
+  departmentsLoading: boolean
+  departmentsError: string | null
+  activeDepartment: string | null
+  onDepartmentChange: (code: string | null) => void
 }
 
 export function ChatPanel({
@@ -33,6 +40,11 @@ export function ChatPanel({
   onSend,
   onRetry,
   onStop,
+  departments,
+  departmentsLoading,
+  departmentsError,
+  activeDepartment,
+  onDepartmentChange,
 }: ChatPanelProps) {
   const { attachment, pick, clear } = useAttachment()
 
@@ -45,7 +57,7 @@ export function ChatPanel({
             summaryLine: describeUploadSummary(attachment.file.summary),
           }
         : undefined
-    onSend(text, toOllamaOptions(genConfig), descriptor)
+    onSend(text, toOllamaOptions(genConfig), descriptor, activeDepartment ?? undefined)
     clear()
   }
   const handleRetry = (assistantId: string, text: string) =>
@@ -55,6 +67,42 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b px-4 py-2">
+        <button
+          type="button"
+          onClick={() => onDepartmentChange(null)}
+          className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors ${
+            activeDepartment === null
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-muted text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Globe2 className="size-3.5" />
+          General
+        </button>
+        {departments.filter((department) => department.is_active).map((department) => (
+          <button
+            key={department.id}
+            type="button"
+            onClick={() => onDepartmentChange(department.code)}
+            title={`${department.name} (${department.code})`}
+            className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors ${
+              activeDepartment === department.code
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Building2 className="size-3.5" />
+            {department.name}
+          </button>
+        ))}
+        {departmentsLoading && <Loader2 className="ml-1 size-4 shrink-0 animate-spin text-muted-foreground" />}
+        {departmentsError && (
+          <span className="ml-1 shrink-0 text-xs text-destructive" title={departmentsError}>
+            Departments unavailable
+          </span>
+        )}
+      </div>
       <div className="flex shrink-0 items-center gap-2 border-b px-5 py-2.5">
         <div className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Wrench className="size-3.5" />

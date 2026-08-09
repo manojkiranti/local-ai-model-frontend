@@ -12,7 +12,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   }
 })
 
-import { openChatStream } from '@/lib/api'
+import { GatewayError, openChatStream } from '@/lib/api'
 import { useSessions } from '@/hooks/useSessions'
 
 const mockOpen = vi.mocked(openChatStream)
@@ -90,5 +90,36 @@ describe('useSessions attachment file_ids semantics', () => {
     })
     await waitFor(() => expect(result.current.sending).toBe(false))
     expect(mockOpen.mock.calls[1][0]).toMatchObject({ file_ids: ['f1'] })
+  })
+
+  it('sends department only when creating a session', async () => {
+    mockOpen.mockResolvedValue(doneStream())
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('first', undefined, undefined, 'finance')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    await act(async () => {
+      result.current.send('follow-up', undefined, undefined, 'finance')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(mockOpen.mock.calls[0][0]).toMatchObject({
+      message: 'first',
+      department: 'finance',
+    })
+    expect(mockOpen.mock.calls[1][0]).not.toHaveProperty('department')
+  })
+
+  it('turns a department conflict into start-a-new-chat guidance', async () => {
+    mockOpen.mockRejectedValue(new GatewayError(409, 'Department mismatch'))
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('question', undefined, undefined, 'finance')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    const assistant = result.current.messages.find((message) => message.role === 'assistant')
+    expect(assistant?.error).toBe(
+      'This conversation belongs to a different department. Start a new chat in this department.',
+    )
   })
 })
