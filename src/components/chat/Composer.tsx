@@ -95,7 +95,7 @@ export function Composer({
 
         <div
           className={cn(
-            'flex items-end gap-2.5 rounded-[20px] border bg-card py-2.5 pl-4 pr-2.5 shadow-lg transition-colors focus-within:border-primary',
+            'flex items-end gap-2.5 rounded-2xl border bg-card py-2.5 pl-4 pr-2.5 shadow-[0_12px_40px_rgba(0,0,0,0.10)] transition-[border-color,box-shadow] focus-within:border-primary/60 focus-within:shadow-[0_14px_44px_rgba(0,0,0,0.14)]',
             disabled && 'opacity-60',
           )}
         >

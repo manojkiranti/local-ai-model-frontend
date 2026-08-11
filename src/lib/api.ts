@@ -61,7 +61,6 @@ export interface ChatTurnRequest {
   session_id?: string
   message: string
   model?: string
-  options?: Record<string, unknown>
   file_ids?: string[]
   /** Present only when creating a new department-bound conversation. */
   department?: string

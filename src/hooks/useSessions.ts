@@ -66,7 +66,7 @@ function settleTool(
   return list
 }
 
-function threadToUI(m: ThreadMessage): UIMessage {
+function threadToUI(m: ThreadMessage, index: number, thread: ThreadMessage[]): UIMessage {
   return {
     id: m.id,
     role: m.role,
@@ -75,6 +75,9 @@ function threadToUI(m: ThreadMessage): UIMessage {
     trace: m.trace,
     files: extractFileRefs(m.content, m.trace),
     model: m.model,
+    ...(m.role === 'assistant' && index > 0 && thread[index - 1]?.role === 'user'
+      ? { retryText: thread[index - 1].content }
+      : {}),
   }
 }
 
@@ -165,7 +168,6 @@ export function useSessions() {
     async (
       assistantId: string,
       text: string,
-      options?: Record<string, unknown>,
       fileIds?: string[],
       department?: string,
     ) => {
@@ -187,7 +189,6 @@ export function useSessions() {
           {
             session_id: sessionForTurn,
             message: text,
-            options,
             ...(fileIds && fileIds.length ? { file_ids: fileIds } : {}),
             ...(!sessionForTurn && department ? { department } : {}),
           },
@@ -231,6 +232,7 @@ export function useSessions() {
                 return {
                   status: 'done',
                   content: finalContent,
+                  retryText: text,
                   trace,
                   files: extractFileRefs(finalContent, trace),
                   liveTools: undefined,
@@ -282,7 +284,6 @@ export function useSessions() {
   const send = useCallback(
     (
       text: string,
-      options?: Record<string, unknown>,
       attachment?: AttachmentDescriptor,
       department?: string,
     ) => {
@@ -298,12 +299,11 @@ export function useSessions() {
             ? { attachment: { filename: attachment.filename, summaryLine: attachment.summaryLine } }
             : {}),
         },
-        { id: assistantId, role: 'assistant', content: '', status: 'streaming' },
+        { id: assistantId, role: 'assistant', content: '', status: 'streaming', retryText: text },
       ])
       void runTurn(
         assistantId,
         text,
-        options,
         attachment ? [attachment.id] : undefined,
         department,
       )
@@ -312,7 +312,7 @@ export function useSessions() {
   )
 
   const retry = useCallback(
-    (assistantId: string, text: string, options?: Record<string, unknown>) => {
+    (assistantId: string, text: string) => {
       // Read fileIds from the current messages before updating state
       const fileIds = messages.find((m) => m.id === assistantId)?.retryFileIds
 
@@ -332,7 +332,7 @@ export function useSessions() {
           }
         }),
       )
-      void runTurn(assistantId, text, options, fileIds)
+      void runTurn(assistantId, text, fileIds)
     },
     [runTurn, messages],
   )

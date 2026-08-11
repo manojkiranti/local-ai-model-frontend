@@ -1,4 +1,5 @@
-import { AlertTriangle, FileSpreadsheet, RotateCw } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, Check, Copy, FileSpreadsheet, RotateCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkdownContent } from './MarkdownContent'
 import { BurstLogo } from '@/components/brand/BurstLogo'
@@ -11,9 +12,12 @@ import type { UIMessage } from '@/hooks/useSessions'
 interface MessageBubbleProps {
   message: UIMessage
   onRetry?: (assistantId: string, text: string) => void
+  canRetry?: boolean
 }
 
-export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
+export function MessageBubble({ message, onRetry, canRetry = true }: MessageBubbleProps) {
+  const [copied, setCopied] = useState(false)
+
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -37,9 +41,18 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
   const hasFiles = Boolean(message.files && message.files.length > 0)
   // Once file cards render, drop the raw "GET /v1/files/…" text they replace.
   const displayContent = hasFiles ? stripFileRefs(message.content) : message.content
+  const copyResponse = async () => {
+    try {
+      await navigator.clipboard.writeText(displayContent)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // Clipboard access can be denied by browser permissions; leave the UI unchanged.
+    }
+  }
 
   return (
-    <div className="flex gap-3.5">
+    <div className="group/message flex gap-3.5">
       <BurstLogo size={26} active={streaming} className="mt-0.5" />
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -81,6 +94,32 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
             {message.files!.map((file) => (
               <FileCard key={file.id} file={file} />
             ))}
+          </div>
+        )}
+
+        {message.status === 'done' && displayContent && (
+          <div className="flex items-center gap-1 opacity-70 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+            <button
+              type="button"
+              onClick={() => void copyResponse()}
+              aria-label={copied ? 'Response copied' : 'Copy response'}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              {copied ? <Check className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            {message.retryText && onRetry && (
+              <button
+                type="button"
+                onClick={() => onRetry(message.id, message.retryText!)}
+                disabled={!canRetry}
+                aria-label="Retry response"
+                className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <RotateCw className="size-3.5" />
+                Retry
+              </button>
+            )}
           </div>
         )}
       </div>

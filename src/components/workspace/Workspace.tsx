@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Header } from '@/components/layout/Header'
@@ -11,7 +11,6 @@ import { useSessions } from '@/hooks/useSessions'
 import { useTheme } from '@/hooks/useTheme'
 import { useAuth } from '@/hooks/useAuth'
 import { useDepartments } from '@/hooks/useDepartments'
-import { DEFAULT_GENERATION, type GenerationConfig } from '@/lib/chat-config'
 
 export function Workspace() {
   const { theme, toggle } = useTheme()
@@ -20,8 +19,9 @@ export function Workspace() {
   const departmentState = useDepartments()
   const { user, logout, isAdmin } = useAuth()
 
-  const [genConfig, setGenConfig] = useState<GenerationConfig>(DEFAULT_GENERATION)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches,
+  )
   const [activeDepartment, setActiveDepartment] = useState<string | null>(null)
 
   const changeDepartment = (code: string | null) => {
@@ -37,9 +37,39 @@ export function Workspace() {
     void chat.selectSession(id)
   }
 
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 768px)')
+    const syncSidebar = (event: MediaQueryListEvent) => setSidebarOpen(event.matches)
+    desktop.addEventListener('change', syncSidebar)
+    return () => desktop.removeEventListener('change', syncSidebar)
+  }, [])
+
+  useEffect(() => {
+    if (!sidebarOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !window.matchMedia('(min-width: 768px)').matches) {
+        setSidebarOpen(false)
+      }
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [sidebarOpen])
+
+  const closeSidebarOnMobile = () => {
+    if (!window.matchMedia('(min-width: 768px)').matches) setSidebarOpen(false)
+  }
+
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-full overflow-hidden">
+        {sidebarOpen && (
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-40 bg-black/45 backdrop-blur-[1px] md:hidden"
+          />
+        )}
         {sidebarOpen && (
           <Sidebar
             sessions={chat.sessions}
@@ -48,7 +78,11 @@ export function Workspace() {
             onNewChat={chat.newChat}
             onDelete={chat.removeSession}
             onCollapse={() => setSidebarOpen(false)}
+            onNavigate={closeSidebarOnMobile}
             isAdmin={isAdmin}
+            email={user?.email ?? ''}
+            role={user?.role ?? 'member'}
+            onLogout={logout}
           />
         )}
 
@@ -62,9 +96,6 @@ export function Workspace() {
             onToggleTheme={toggle}
             sidebarOpen={sidebarOpen}
             onOpenSidebar={() => setSidebarOpen(true)}
-            email={user?.email ?? ''}
-            role={user?.role ?? 'member'}
-            onLogout={logout}
           />
 
           <div className="min-h-0 flex-1">
@@ -77,8 +108,6 @@ export function Workspace() {
                     sending={chat.sending}
                     loadingThread={chat.loadingThread}
                     reachable={health.reachable}
-                    genConfig={genConfig}
-                    onGenConfigChange={setGenConfig}
                     onSend={chat.send}
                     onRetry={chat.retry}
                     onStop={chat.stop}

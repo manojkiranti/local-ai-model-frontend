@@ -46,7 +46,7 @@ describe('useSessions attachment file_ids semantics', () => {
     mockOpen.mockResolvedValue(doneStream())
     const { result } = renderHook(() => useSessions())
     await act(async () => {
-      result.current.send('analyze', undefined, {
+      result.current.send('analyze', {
         id: 'f1',
         filename: 'a.xlsx',
         summaryLine: 'Excel · 1 row',
@@ -63,7 +63,7 @@ describe('useSessions attachment file_ids semantics', () => {
     mockOpen.mockResolvedValue(doneStream())
     const { result } = renderHook(() => useSessions())
     await act(async () => {
-      result.current.send('first', undefined, { id: 'f1', filename: 'a.xlsx', summaryLine: 'x' })
+      result.current.send('first', { id: 'f1', filename: 'a.xlsx', summaryLine: 'x' })
     })
     await waitFor(() => expect(result.current.sending).toBe(false))
     await act(async () => {
@@ -78,7 +78,7 @@ describe('useSessions attachment file_ids semantics', () => {
     mockOpen.mockResolvedValue(doneStream({ error: true }))
     const { result } = renderHook(() => useSessions())
     await act(async () => {
-      result.current.send('q', undefined, { id: 'f1', filename: 'a.xlsx', summaryLine: 'x' })
+      result.current.send('q', { id: 'f1', filename: 'a.xlsx', summaryLine: 'x' })
     })
     await waitFor(() => expect(result.current.sending).toBe(false))
     const assistant = result.current.messages.find((m) => m.role === 'assistant')!
@@ -96,11 +96,11 @@ describe('useSessions attachment file_ids semantics', () => {
     mockOpen.mockResolvedValue(doneStream())
     const { result } = renderHook(() => useSessions())
     await act(async () => {
-      result.current.send('first', undefined, undefined, 'finance')
+      result.current.send('first', undefined, 'finance')
     })
     await waitFor(() => expect(result.current.sending).toBe(false))
     await act(async () => {
-      result.current.send('follow-up', undefined, undefined, 'finance')
+      result.current.send('follow-up', undefined, 'finance')
     })
     await waitFor(() => expect(result.current.sending).toBe(false))
     expect(mockOpen.mock.calls[0][0]).toMatchObject({
@@ -114,12 +114,22 @@ describe('useSessions attachment file_ids semantics', () => {
     mockOpen.mockRejectedValue(new GatewayError(409, 'Department mismatch'))
     const { result } = renderHook(() => useSessions())
     await act(async () => {
-      result.current.send('question', undefined, undefined, 'finance')
+      result.current.send('question', undefined, 'finance')
     })
     await waitFor(() => expect(result.current.sending).toBe(false))
     const assistant = result.current.messages.find((message) => message.role === 'assistant')
     expect(assistant?.error).toBe(
       'This conversation belongs to a different department. Start a new chat in this department.',
     )
+  })
+
+  it('does not send unsupported generation options', async () => {
+    mockOpen.mockResolvedValue(doneStream())
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('question')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(mockOpen.mock.calls[0][0]).not.toHaveProperty('options')
   })
 })

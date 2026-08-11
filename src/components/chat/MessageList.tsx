@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, FileSpreadsheet, Globe2, Users, Wrench } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
 import { BurstLogo } from '@/components/brand/BurstLogo'
 import { APP_NAME } from '@/lib/branding'
@@ -8,9 +8,28 @@ import type { UIMessage } from '@/hooks/useSessions'
 // Clickable starter prompts — each one exercises a real tool the gateway exposes
 // (employee records, web lookup, file generation).
 const EXAMPLES = [
-  'Get the employee details from the HR system.',
-  'Look up https://www.nicasiabank.com/ and summarise what NIC Asia Bank offers.',
-  'Generate an Excel list of all employees with their departments.',
+  {
+    category: 'HR system',
+    text: 'Get the employee details from the HR system.',
+    icon: Users,
+  },
+  {
+    category: 'Web research',
+    text: 'Look up NIC Asia Bank and summarise what it offers.',
+    prompt: 'Look up https://www.nicasiabank.com/ and summarise what NIC Asia Bank offers.',
+    icon: Globe2,
+  },
+  {
+    category: 'Create a file',
+    text: 'Generate an Excel list of all employees and departments.',
+    prompt: 'Generate an Excel list of all employees with their departments.',
+    icon: FileSpreadsheet,
+  },
+  {
+    category: 'Explore tools',
+    text: 'Show me what tools are available in this workspace.',
+    icon: Wrench,
+  },
 ]
 
 interface MessageListProps {
@@ -30,26 +49,34 @@ export function MessageList({ messages, onExample, canSend, onRetry }: MessageLi
 
   if (messages.length === 0) {
     return (
-      <div className="mx-auto flex w-full max-w-[660px] flex-col items-start px-6 pb-6 pt-[11vh]">
-        <BurstLogo size={46} title={APP_NAME} className="mb-5" />
-        <h1 className="text-[31px] font-semibold leading-tight tracking-tight text-pretty">
+      <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col justify-center px-5 py-10 sm:px-6">
+        <BurstLogo size={44} title={APP_NAME} className="mb-5" />
+        <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-pretty sm:text-[32px]">
           What can I help you with?
         </h1>
-        <p className="mt-2 max-w-[52ch] text-[15px] leading-relaxed text-muted-foreground text-pretty">
+        <p className="mt-2 max-w-[58ch] text-[14px] leading-relaxed text-muted-foreground text-pretty sm:text-[15px]">
           Ask a question, pull up employee records, research a company from its
           website, or turn the answer into a spreadsheet, document, or chart.
         </p>
-        <div className="mt-6 flex w-full flex-col gap-2">
+        <div className="mt-7 grid w-full grid-cols-1 gap-2.5 sm:grid-cols-2">
           {EXAMPLES.map((example) => (
             <button
-              key={example}
+              key={example.category}
               type="button"
               disabled={!canSend}
-              onClick={() => onExample(example)}
-              className="group flex items-center gap-3 rounded-[13px] border bg-card px-4 py-3 text-left text-[14.5px] shadow-sm transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => onExample(example.prompt ?? example.text)}
+              className="group flex min-h-28 flex-col rounded-2xl border bg-card p-4 text-left shadow-sm transition-[border-color,transform,box-shadow] hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
             >
-              <span className="flex-1">{example}</span>
-              <ArrowRight className="size-4 shrink-0 opacity-50 transition-transform group-hover:translate-x-0.5" />
+              <span className="flex w-full items-center gap-2 font-mono text-[10px] font-medium uppercase tracking-[0.09em] text-muted-foreground">
+                <span className="grid size-7 place-items-center rounded-lg bg-primary/10 text-primary">
+                  <example.icon className="size-3.5" />
+                </span>
+                {example.category}
+              </span>
+              <span className="mt-3 flex w-full flex-1 items-end gap-3 text-[13.5px] leading-snug text-foreground/85">
+                <span className="flex-1">{example.text}</span>
+                <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+              </span>
             </button>
           ))}
         </div>
@@ -60,7 +87,7 @@ export function MessageList({ messages, onExample, canSend, onRetry }: MessageLi
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-7 px-6 py-7">
       {messages.map((m) => (
-        <MessageBubble key={m.id} message={m} onRetry={onRetry} />
+        <MessageBubble key={m.id} message={m} onRetry={onRetry} canRetry={canSend} />
       ))}
       <div ref={bottomRef} />
     </div>

@@ -1,16 +1,7 @@
-import { LogOut, Moon, PanelLeft, Sun, User } from 'lucide-react'
-import { StatusDot } from './StatusDot'
-import { McpStatusBadge } from './McpStatusBadge'
+import { Moon, PanelLeft, Sun } from 'lucide-react'
+import { SystemStatusBadge } from './McpStatusBadge'
 import { BurstLogo } from '@/components/brand/BurstLogo'
 import { APP_NAME } from '@/lib/branding'
-import { Badge } from '@/components/ui/badge'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import type { HealthResponse } from '@/lib/api'
 import type { Theme } from '@/hooks/useTheme'
 
@@ -23,9 +14,6 @@ interface HeaderProps {
   onToggleTheme: () => void
   sidebarOpen: boolean
   onOpenSidebar: () => void
-  email: string
-  role: 'admin' | 'member'
-  onLogout: () => void
 }
 
 export function Header({
@@ -37,9 +25,6 @@ export function Header({
   onToggleTheme,
   sidebarOpen,
   onOpenSidebar,
-  email,
-  role,
-  onLogout,
 }: HeaderProps) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
@@ -59,8 +44,12 @@ export function Header({
       )}
 
       <div className="ml-auto flex items-center gap-2">
-        <McpStatusBadge />
-        <StatusDot health={health} reachable={reachable} loading={loading} error={error} />
+        <SystemStatusBadge
+          health={health}
+          reachable={reachable}
+          loading={loading}
+          error={error}
+        />
         <button
           type="button"
           onClick={onToggleTheme}
@@ -69,32 +58,6 @@ export function Header({
         >
           {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </button>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label="Account menu"
-            className="flex items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5 text-sm transition-colors hover:border-primary"
-          >
-            <User className="size-4 text-muted-foreground" />
-            <span className="hidden max-w-40 truncate sm:inline">{email}</span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-56">
-            <div className="flex flex-col gap-1 px-2 py-1.5">
-              <span className="truncate text-sm font-medium">{email}</span>
-              <Badge
-                variant={role === 'admin' ? 'default' : 'outline'}
-                className="w-fit capitalize"
-              >
-                {role}
-              </Badge>
-            </div>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={onLogout}>
-              <LogOut />
-              Log out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     </header>
   )
