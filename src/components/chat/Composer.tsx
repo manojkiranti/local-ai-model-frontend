@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, FileSpreadsheet, Loader2, Paperclip, Square, X } from 'lucide-react'
+import { AlertTriangle, ArrowUp, FileText, Loader2, Paperclip, Square, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Attachment } from '@/hooks/useAttachment'
-import { UPLOAD_ACCEPT, describeUploadSummary } from '@/lib/upload-validation'
+import {
+  UPLOAD_ACCEPT,
+  describeUploadSummary,
+  scannedPdfWarning,
+} from '@/lib/upload-validation'
 
 interface ComposerProps {
   onSend: (text: string) => void
@@ -28,6 +32,8 @@ export function Composer({
   const [text, setText] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const scanWarning =
+    attachment?.status === 'ready' ? scannedPdfWarning(attachment.file.summary) : null
 
   useEffect(() => {
     const el = ref.current
@@ -38,7 +44,7 @@ export function Composer({
 
   const submit = () => {
     const trimmed = text.trim()
-    if (!trimmed || disabled || streaming) return
+    if (!trimmed || disabled || streaming || attachment?.status === 'uploading') return
     onSend(trimmed)
     setText('')
   }
@@ -68,19 +74,25 @@ export function Composer({
             {attachment.status === 'uploading' ? (
               <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
             ) : (
-              <FileSpreadsheet className="size-4 shrink-0 text-primary" />
+              <FileText className="size-4 shrink-0 text-primary" />
             )}
             <div className="min-w-0">
               <div className="truncate font-medium">
                 {attachment.status === 'ready' ? attachment.file.filename : attachment.filename}
               </div>
-              <div className="truncate text-xs text-muted-foreground">
+              <div className={cn('text-xs text-muted-foreground', !scanWarning && 'truncate')}>
                 {attachment.status === 'uploading'
                   ? 'Uploading…'
                   : attachment.status === 'ready'
                     ? describeUploadSummary(attachment.file.summary)
                     : attachment.message}
               </div>
+              {scanWarning && (
+                <div className="mt-1 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                  <span>{scanWarning}</span>
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -103,8 +115,8 @@ export function Composer({
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={disabled}
-            aria-label="Attach a spreadsheet"
-            title="Attach a spreadsheet (.xlsx, .csv)"
+            aria-label="Attach a document"
+            title="Attach a document or spreadsheet (max 10 MB)"
             className="mb-0.5 grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Paperclip className="size-[18px]" />
@@ -139,7 +151,7 @@ export function Composer({
             <button
               type="button"
               onClick={submit}
-              disabled={disabled || !text.trim()}
+              disabled={disabled || !text.trim() || attachment?.status === 'uploading'}
               aria-label="Send message"
               className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-[filter,opacity] hover:brightness-110 disabled:opacity-40"
             >

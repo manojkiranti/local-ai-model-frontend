@@ -74,6 +74,49 @@ describe('useSessions attachment file_ids semantics', () => {
     expect(mockOpen.mock.calls[1][0]).not.toHaveProperty('file_ids')
   })
 
+  it('labels a read_document tool call with the active filename', async () => {
+    let finish!: () => void
+    const continueStream = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    mockOpen.mockResolvedValue({
+      sessionId: 'sess-1',
+      events: (async function* () {
+        yield {
+          type: 'tool_call',
+          name: 'read_document',
+          arguments: { file_id: 'f1' },
+          iteration: 1,
+        }
+        await continueStream
+        yield {
+          type: 'done',
+          session_id: 'sess-1',
+          stop_reason: 'completed',
+          iteration_count: 1,
+          final_answer: 'done',
+          error_message: null,
+          trace: [],
+        }
+      })(),
+    } as OpenResult)
+
+    const { result } = renderHook(() => useSessions())
+    act(() => {
+      result.current.send('read it', {
+        id: 'f1',
+        filename: 'policy.pdf',
+        summaryLine: 'PDF · 2 pages',
+      })
+    })
+    await waitFor(() => {
+      const assistant = result.current.messages.find((m) => m.role === 'assistant')
+      expect(assistant?.liveTools?.[0]?.label).toBe('reading policy.pdf…')
+    })
+    finish()
+    await waitFor(() => expect(result.current.sending).toBe(false))
+  })
+
   it('re-sends file_ids on retry of an errored attachment turn', async () => {
     mockOpen.mockResolvedValue(doneStream({ error: true }))
     const { result } = renderHook(() => useSessions())
@@ -121,6 +164,17 @@ describe('useSessions attachment file_ids semantics', () => {
     expect(assistant?.error).toBe(
       'This conversation belongs to a different department. Start a new chat in this department.',
     )
+  })
+
+  it('turns an owner-scoped attached-file 404 into an attachment error', async () => {
+    mockOpen.mockRejectedValue(new GatewayError(404, 'unknown file'))
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('question', { id: 'foreign', filename: 'x.pdf', summaryLine: 'PDF' })
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    const assistant = result.current.messages.find((message) => message.role === 'assistant')
+    expect(assistant?.error).toBe('That file is no longer available.')
   })
 
   it('does not send unsupported generation options', async () => {

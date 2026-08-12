@@ -1,4 +1,4 @@
-import { Check, Loader2, TriangleAlert, Wrench, X } from 'lucide-react'
+import { BookOpenText, Check, Loader2, TriangleAlert, Wrench, X } from 'lucide-react'
 import type { LiveTool } from '@/hooks/useSessions'
 
 /** Live timeline of tool calls while a turn streams (before the final trace). */
@@ -7,8 +7,14 @@ export function ToolTimeline({ tools }: { tools: LiveTool[] }) {
     <div className="flex flex-col gap-1.5 rounded-xl border bg-card/60 px-3 py-2.5">
       {tools.map((tool, i) => (
         <div key={`${tool.name}-${i}`} className="flex items-center gap-2 text-xs">
-          <Wrench className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="font-mono font-semibold">{tool.name}</span>
+          {tool.name === 'read_document' ? (
+            <BookOpenText className="size-3.5 shrink-0 text-primary" />
+          ) : (
+            <Wrench className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <span className={tool.label ? 'font-medium' : 'font-mono font-semibold'}>
+            {tool.label ?? tool.name}
+          </span>
           <StatusBadge status={tool.status} />
         </div>
       ))}

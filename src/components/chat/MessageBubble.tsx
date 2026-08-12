@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, Check, Copy, FileSpreadsheet, RotateCw } from 'lucide-react'
+import { AlertTriangle, Check, Copy, FileText, RotateCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkdownContent } from './MarkdownContent'
 import { BurstLogo } from '@/components/brand/BurstLogo'
@@ -26,10 +26,18 @@ export function MessageBubble({ message, onRetry, canRetry = true }: MessageBubb
             {message.content}
           </div>
           {message.attachment && (
-            <div className="flex items-center gap-2 rounded-xl border bg-card px-3 py-1.5 text-xs">
-              <FileSpreadsheet className="size-4 shrink-0 text-primary" />
-              <span className="min-w-0 truncate font-medium">{message.attachment.filename}</span>
-              <span className="shrink-0 text-muted-foreground">{message.attachment.summaryLine}</span>
+            <div className="max-w-full rounded-xl border bg-card px-3 py-2 text-xs">
+              <div className="flex items-center gap-2">
+                <FileText className="size-4 shrink-0 text-primary" />
+                <span className="min-w-0 truncate font-medium">{message.attachment.filename}</span>
+                <span className="shrink-0 text-muted-foreground">{message.attachment.summaryLine}</span>
+              </div>
+              {message.attachment.warning && (
+                <div className="mt-1.5 flex items-start gap-1.5 text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                  <span>{message.attachment.warning}</span>
+                </div>
+              )}
             </div>
           )}
         </div>

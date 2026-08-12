@@ -3,7 +3,8 @@ import {
   MAX_UPLOAD_BYTES,
   describeUploadError,
   describeUploadSummary,
-  validateSpreadsheet,
+  scannedPdfWarning,
+  validateUpload,
 } from '@/lib/upload-validation'
 import { GatewayError } from '@/lib/api'
 
@@ -15,32 +16,33 @@ function fileOfSize(name: string, bytes: number): File {
   return file
 }
 
-describe('validateSpreadsheet', () => {
+describe('validateUpload', () => {
   it('accepts .xlsx', () => {
-    expect(validateSpreadsheet(new File(['x'], 'a.xlsx'))).toBeNull()
+    expect(validateUpload(new File(['x'], 'a.xlsx'))).toBeNull()
   })
   it('accepts .csv', () => {
-    expect(validateSpreadsheet(new File(['x'], 'a.csv'))).toBeNull()
+    expect(validateUpload(new File(['x'], 'a.csv'))).toBeNull()
+  })
+  it.each(['pdf', 'docx', 'txt', 'md', 'json'])('accepts .%s documents', (ext) => {
+    expect(validateUpload(new File(['x'], `a.${ext}`))).toBeNull()
   })
   it('accepts uppercase extension', () => {
-    expect(validateSpreadsheet(new File(['x'], 'A.XLSX'))).toBeNull()
+    expect(validateUpload(new File(['x'], 'A.PDF'))).toBeNull()
   })
   it('rejects .xls', () => {
-    expect(validateSpreadsheet(new File(['x'], 'a.xls'))).toBe(
-      'Only .xlsx and .csv files are accepted',
+    expect(validateUpload(new File(['x'], 'a.xls'))).toBe(
+      'only .xlsx, .csv, .pdf, .docx, .txt, .md and .json files are accepted',
     )
   })
-  it('rejects .pdf', () => {
-    expect(validateSpreadsheet(new File(['x'], 'a.pdf'))).toBe(
-      'Only .xlsx and .csv files are accepted',
-    )
+  it('rejects an empty upload', () => {
+    expect(validateUpload(new File([], 'a.pdf'))).toBe('uploaded file is empty')
   })
   it('accepts a file of exactly 10 MB', () => {
-    expect(validateSpreadsheet(fileOfSize('a.xlsx', MAX_UPLOAD_BYTES))).toBeNull()
+    expect(validateUpload(fileOfSize('a.xlsx', MAX_UPLOAD_BYTES))).toBeNull()
   })
   it('rejects a file over 10 MB', () => {
-    expect(validateSpreadsheet(fileOfSize('a.xlsx', MAX_UPLOAD_BYTES + 1))).toBe(
-      'File exceeds the 10 MB limit',
+    expect(validateUpload(fileOfSize('a.xlsx', MAX_UPLOAD_BYTES + 1))).toBe(
+      'file exceeds the 10 MB limit',
     )
   })
 })
@@ -75,12 +77,56 @@ describe('describeUploadSummary', () => {
   it('uses the singular for one row', () => {
     expect(describeUploadSummary({ kind: 'CSV', total_rows: 1 })).toBe('CSV · 1 row')
   })
+  it('formats PDF pages, lines, and characters', () => {
+    expect(
+      describeUploadSummary({
+        kind: 'PDF',
+        pages: 3,
+        text_pages: 3,
+        lines: 125,
+        chars: 9042,
+      }),
+    ).toBe('PDF · 3 pages · 125 lines · 9,042 chars')
+  })
+  it('formats non-paged documents without a zero-page label', () => {
+    expect(
+      describeUploadSummary({
+        kind: 'Markdown',
+        pages: 0,
+        text_pages: 0,
+        lines: 1,
+        chars: 20,
+      }),
+    ).toBe('Markdown · 1 line · 20 chars')
+  })
+})
+
+describe('scannedPdfWarning', () => {
+  const warning = "No text layer — this looks like a scan and can't be read yet."
+
+  it('warns only when a PDF has pages and zero text pages', () => {
+    expect(
+      scannedPdfWarning({ kind: 'PDF', pages: 2, text_pages: 0, lines: 0, chars: 0 }),
+    ).toBe(warning)
+  })
+
+  it('does not warn for a partial scan', () => {
+    expect(
+      scannedPdfWarning({ kind: 'PDF', pages: 2, text_pages: 1, lines: 10, chars: 80 }),
+    ).toBeNull()
+  })
+
+  it('does not warn for a zero-page text document', () => {
+    expect(
+      scannedPdfWarning({ kind: 'Text file', pages: 0, text_pages: 0, lines: 1, chars: 3 }),
+    ).toBeNull()
+  })
 })
 
 describe('describeUploadError', () => {
-  it('maps 413 to the size-limit message', () => {
+  it('passes a 413 detail through verbatim', () => {
     expect(describeUploadError(new GatewayError(413, 'Payload Too Large'))).toBe(
-      'File exceeds the 10 MB limit',
+      'Payload Too Large',
     )
   })
   it('passes a 400 detail through verbatim', () => {

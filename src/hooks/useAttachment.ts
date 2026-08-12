@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { uploadFile, type UploadedFile } from '@/lib/api'
-import { describeUploadError, validateSpreadsheet } from '@/lib/upload-validation'
+import { describeUploadError, validateUpload } from '@/lib/upload-validation'
 
 export type Attachment =
   | { status: 'uploading'; filename: string; size: number }
@@ -8,7 +8,7 @@ export type Attachment =
   | { status: 'error'; filename: string; message: string }
 
 /**
- * Owns a single, replaceable spreadsheet attachment for the composer. Validates
+ * Owns a single, replaceable attachment for the composer. Validates
  * client-side first (no wasted round trip), uploads, and tracks the result.
  * Picking again or clearing aborts any in-flight upload; also aborts on unmount.
  */
@@ -24,7 +24,7 @@ export function useAttachment() {
   const pick = useCallback(
     (file: File) => {
       abortInFlight()
-      const rejection = validateSpreadsheet(file)
+      const rejection = validateUpload(file)
       if (rejection) {
         setAttachment({ status: 'error', filename: file.name, message: rejection })
         return

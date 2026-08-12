@@ -19,6 +19,7 @@ export type MessageStatus = 'streaming' | 'done' | 'error'
 /** A tool call surfaced live from the event stream, before the final trace lands. */
 export interface LiveTool {
   name: string
+  label?: string
   status: 'running' | ToolCallStatus
   iteration: number
 }
@@ -27,6 +28,7 @@ export interface AttachmentDescriptor {
   id: string
   filename: string
   summaryLine: string
+  warning?: string
 }
 
 /** One rendered chat bubble — from server history or an in-flight optimistic turn. */
@@ -46,8 +48,9 @@ export interface UIMessage {
   retryText?: string
   /** file_ids to re-send on Retry (mirrors the original turn's attachment). */
   retryFileIds?: string[]
-  /** Present on a user bubble that carried an uploaded spreadsheet. */
-  attachment?: { filename: string; summaryLine: string }
+  retryAttachmentName?: string
+  /** Present on a user bubble that carried an uploaded document. */
+  attachment?: { filename: string; summaryLine: string; warning?: string }
 }
 
 /** Mark the most recent still-running call with this name as finished. */
@@ -97,6 +100,7 @@ export function useSessions() {
 
   const controllerRef = useRef<AbortController | null>(null)
   const activeIdRef = useRef<string | null>(null)
+  const activeAttachmentNameRef = useRef<string | null>(null)
   // eslint-disable-next-line react-hooks/refs -- latest-value ref, intentionally synced during render
   activeIdRef.current = activeId
 
@@ -122,6 +126,7 @@ export function useSessions() {
 
   const newChat = useCallback(() => {
     controllerRef.current?.abort()
+    activeAttachmentNameRef.current = null
     setActiveId(null)
     setMessages([])
   }, [])
@@ -129,6 +134,7 @@ export function useSessions() {
   const selectSession = useCallback(async (id: string) => {
     if (id === activeIdRef.current) return
     controllerRef.current?.abort()
+    activeAttachmentNameRef.current = null
     setActiveId(id)
     setMessages([])
     setLoadingThread(true)
@@ -170,6 +176,7 @@ export function useSessions() {
       text: string,
       fileIds?: string[],
       department?: string,
+      attachmentName?: string,
     ) => {
       const sessionForTurn = activeIdRef.current ?? undefined
       const controller = new AbortController()
@@ -201,10 +208,18 @@ export function useSessions() {
             const delta = ev.content
             if (delta) patch(assistantId, (m) => ({ content: m.content + delta }))
           } else if (ev.type === 'tool_call') {
+            const readingFilename = attachmentName ?? activeAttachmentNameRef.current
             patch(assistantId, (m) => ({
               liveTools: [
                 ...(m.liveTools ?? []),
-                { name: ev.name, status: 'running', iteration: ev.iteration },
+                {
+                  name: ev.name,
+                  ...(ev.name === 'read_document' && readingFilename
+                    ? { label: `reading ${readingFilename}…` }
+                    : {}),
+                  status: 'running',
+                  iteration: ev.iteration,
+                },
               ],
             }))
           } else if (ev.type === 'tool_result') {
@@ -220,6 +235,7 @@ export function useSessions() {
                 error: ev.error_message ?? 'The model reported an error.',
                 retryText: text,
                 retryFileIds: fileIds,
+                retryAttachmentName: attachmentName,
                 liveTools: undefined,
                 trace,
               }))
@@ -258,9 +274,7 @@ export function useSessions() {
           const message =
             e instanceof GatewayError && e.status === 409
               ? 'This conversation belongs to a different department. Start a new chat in this department.'
-              : e instanceof GatewayError &&
-                  e.status === 404 &&
-                  e.message.toLowerCase().includes('attached file not found')
+              : e instanceof GatewayError && e.status === 404 && fileIds?.length
                 ? 'That file is no longer available.'
                 : describeError(e)
           patch(assistantId, () => ({
@@ -268,6 +282,7 @@ export function useSessions() {
             error: message,
             retryText: text,
             retryFileIds: fileIds,
+            retryAttachmentName: attachmentName,
             liveTools: undefined,
           }))
           // The user message may have been persisted (e.g. 502) — refresh the list.
@@ -287,6 +302,11 @@ export function useSessions() {
       attachment?: AttachmentDescriptor,
       department?: string,
     ) => {
+      if (attachment) {
+        activeAttachmentNameRef.current = attachment.filename
+      } else if (!activeIdRef.current) {
+        activeAttachmentNameRef.current = null
+      }
       const assistantId = uid()
       setMessages((prev) => [
         ...prev,
@@ -296,7 +316,13 @@ export function useSessions() {
           content: text,
           status: 'done',
           ...(attachment
-            ? { attachment: { filename: attachment.filename, summaryLine: attachment.summaryLine } }
+            ? {
+                attachment: {
+                  filename: attachment.filename,
+                  summaryLine: attachment.summaryLine,
+                  ...(attachment.warning ? { warning: attachment.warning } : {}),
+                },
+              }
             : {}),
         },
         { id: assistantId, role: 'assistant', content: '', status: 'streaming', retryText: text },
@@ -306,6 +332,7 @@ export function useSessions() {
         text,
         attachment ? [attachment.id] : undefined,
         department,
+        attachment?.filename,
       )
     },
     [runTurn],
@@ -315,6 +342,7 @@ export function useSessions() {
     (assistantId: string, text: string) => {
       // Read fileIds from the current messages before updating state
       const fileIds = messages.find((m) => m.id === assistantId)?.retryFileIds
+      const attachmentName = messages.find((m) => m.id === assistantId)?.retryAttachmentName
 
       setMessages((prev) =>
         prev.map((m) => {
@@ -329,10 +357,11 @@ export function useSessions() {
             files: undefined,
             liveTools: undefined,
             retryFileIds: undefined,
+            retryAttachmentName: undefined,
           }
         }),
       )
-      void runTurn(assistantId, text, fileIds)
+      void runTurn(assistantId, text, fileIds, undefined, attachmentName)
     },
     [runTurn, messages],
   )

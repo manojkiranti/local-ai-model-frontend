@@ -423,11 +423,27 @@ export interface SheetSummary {
   headers: string[]
 }
 
-export interface UploadSummary {
+export interface SpreadsheetUploadSummary {
   kind: string
   total_rows: number
   sheets?: SheetSummary[]
 }
+
+export interface DocumentUploadSummary {
+  kind:
+    | 'PDF'
+    | 'Word document'
+    | 'Text file'
+    | 'Markdown'
+    | 'JSON'
+    | 'JSON (unparsed)'
+  lines: number
+  chars: number
+  pages: number
+  text_pages: number
+}
+
+export type UploadSummary = SpreadsheetUploadSummary | DocumentUploadSummary
 
 export interface UploadedFile {
   id: string
@@ -449,7 +465,7 @@ export interface GatewayFile {
 }
 
 /**
- * Upload a spreadsheet (`POST /v1/files`, multipart). The browser sets the
+ * Upload a document or spreadsheet (`POST /v1/files`, multipart). The browser sets the
  * multipart Content-Type/boundary — do NOT set it manually. Bearer + global 401
  * come from `rawFetch`; non-2xx throws a GatewayError carrying the detail.
  */
