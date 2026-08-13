@@ -141,6 +141,11 @@ explicitly includes backend work.
 12. **Change contracts end to end.** When a gateway field is added or removed,
     trace its types, request construction, hooks, components, retries, and
     tests. Do not leave a visually hidden unsupported option in outgoing JSON.
+13. **Tests are required for code changes.** Every bug fix, feature, behavior
+    change, or API-contract change must add or update automated tests covering
+    the affected behavior. Do not consider the task complete until the relevant
+    tests pass. If automated testing is genuinely impractical, explicitly
+    explain why and describe the manual verification performed.
 
 ## Testing conventions
 
@@ -181,4 +186,3 @@ explicitly includes backend work.
   variables, or setup commands change.
 - Update this file when repository structure, scripts, architectural rules, or
   agent-specific pitfalls change.
-
