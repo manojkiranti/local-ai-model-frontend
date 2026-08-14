@@ -4,77 +4,79 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Token system — warm cream/charcoal neutrals with a deep red accent.
- * A "modern AI product" identity (Claude-like warmth) tuned to red.
- * Light values here, dark overrides below.
+ * Token system — NIC ASIA brand: red primary (#E60012) on deep-navy/steel-gray
+ * neutrals. Light values here, dark overrides below. The sidebar is brand
+ * chrome (deep navy), not theme-driven — see --sidebar-* below.
  */
 :root {
   --radius: 0.75rem;
 
-  --background: #faf7f3;
-  --foreground: #241f1c;
+  --background: #f5f6f8;
+  --foreground: #1d2230;
 
   --card: #ffffff;
-  --card-foreground: #241f1c;
+  --card-foreground: #1d2230;
 
   --popover: #ffffff;
-  --popover-foreground: #241f1c;
+  --popover-foreground: #1d2230;
 
-  /* Deep, slightly-warm crimson accent */
-  --primary: #b8352c;
+  /* NIC ASIA Red */
+  --primary: #e60012;
   --primary-foreground: #ffffff;
 
-  --secondary: #f2ece6;
-  --secondary-foreground: #241f1c;
+  --secondary: #edeff2;
+  --secondary-foreground: #1d2230;
 
-  --muted: #efe8e1;
-  --muted-foreground: #857a73;
+  --muted: #edeff2;
+  --muted-foreground: #6b7280;
 
   /* Active/selected surfaces — a soft wash of the red accent */
-  --accent: #f6e6e4;
-  --accent-foreground: #241f1c;
+  --accent: #fbe4e6;
+  --accent-foreground: #1d2230;
 
-  --destructive: #cf2222;
+  /* Dark Red — distinct from the primary CTA red */
+  --destructive: #b5121b;
   --destructive-foreground: #ffffff;
 
-  --border: #e7ded6;
-  --input: #e7ded6;
-  --ring: #b8352c;
+  --border: #e3e6ea;
+  --input: #e3e6ea;
+  --ring: #e60012;
 
-  /* App chrome — the conversation rail sits a shade below the canvas */
-  --sidebar: #f2ece6;
+  /* Brand chrome — the conversation rail is always deep navy, unaffected by
+     light/dark mode (see --sidebar-foreground / --sidebar-muted-foreground). */
+  --sidebar: #1d2230;
+  --sidebar-foreground: #f5f6f8;
+  --sidebar-muted-foreground: #97a1b2;
 }
 
 .dark {
-  --background: #19100e;
-  --foreground: #f0e8e2;
+  --background: #14161e;
+  --foreground: #f5f6f8;
 
-  --card: #221b18;
-  --card-foreground: #f0e8e2;
+  --card: #1d2230;
+  --card-foreground: #f5f6f8;
 
-  --popover: #221b18;
-  --popover-foreground: #f0e8e2;
+  --popover: #1d2230;
+  --popover-foreground: #f5f6f8;
 
-  --primary: #e0574a;
-  --primary-foreground: #1a100e;
+  --primary: #ff3b4e;
+  --primary-foreground: #1a0e10;
 
-  --secondary: #2a211d;
-  --secondary-foreground: #f0e8e2;
+  --secondary: #232838;
+  --secondary-foreground: #f5f6f8;
 
-  --muted: #2a211d;
-  --muted-foreground: #9b8f88;
+  --muted: #232838;
+  --muted-foreground: #9aa3b4;
 
-  --accent: #2f201d;
-  --accent-foreground: #f0e8e2;
+  --accent: #332129;
+  --accent-foreground: #f5f6f8;
 
-  --destructive: #f0685c;
-  --destructive-foreground: #1a100e;
+  --destructive: #ff5a6b;
+  --destructive-foreground: #1a0e10;
 
-  --border: #332924;
-  --input: #332924;
-  --ring: #e0574a;
-
-  --sidebar: #140e0c;
+  --border: #2a3040;
+  --input: #2a3040;
+  --ring: #ff3b4e;
 }
 
 /* Map semantic vars onto Tailwind color/utility namespaces. */
@@ -99,13 +101,15 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted-foreground: var(--sidebar-muted-foreground);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  --font-sans: 'Archivo', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Poppins', system-ui, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas,
     monospace;
 }
@@ -195,7 +199,7 @@
   animation: thinking-shimmer 1.8s linear infinite;
 }
 
-/* Radial-burst brand mark — pulses (grow/shrink) while the assistant is answering. */
+/* Brand mark — pulses (grow/shrink) while the assistant is answering. */
 @keyframes burst-pulse {
   0%,
   100% {
@@ -206,8 +210,6 @@
   }
 }
 .burst-pulse {
-  /* fill-box + center = scale around the burst's own centre, cross-browser. */
-  transform-box: fill-box;
   transform-origin: center;
   animation: burst-pulse 1.4s ease-in-out infinite;
 }

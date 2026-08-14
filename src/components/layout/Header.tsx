@@ -1,7 +1,7 @@
 import { Moon, PanelLeft, Sun } from 'lucide-react'
 import { SystemStatusBadge } from './McpStatusBadge'
 import { BurstLogo } from '@/components/brand/BurstLogo'
-import { APP_NAME } from '@/lib/branding'
+import { APP_NAME, APP_NAME_PRIMARY, APP_NAME_SECONDARY } from '@/lib/branding'
 import type { HealthResponse } from '@/lib/api'
 import type { Theme } from '@/hooks/useTheme'
 
@@ -39,7 +39,10 @@ export function Header({
             <PanelLeft className="size-4" />
           </button>
           <BurstLogo size={22} title={APP_NAME} />
-          <span className="hidden text-sm font-semibold tracking-tight sm:inline">{APP_NAME}</span>
+          <span className="hidden text-sm font-semibold tracking-tight sm:inline">
+            <span className="text-primary">{APP_NAME_PRIMARY}</span>{' '}
+            <span className="text-foreground">{APP_NAME_SECONDARY}</span>
+          </span>
         </div>
       )}
 
