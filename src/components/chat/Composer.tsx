@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ArrowUp, FileText, Loader2, Paperclip, Square, X } from 'lucide-react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { AlertTriangle, ArrowUp, FileText, Loader2, Paperclip, Square, Upload, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Attachment } from '@/hooks/useAttachment'
 import {
@@ -30,8 +30,10 @@ export function Composer({
   onClearAttachment,
 }: ComposerProps) {
   const [text, setText] = useState('')
+  const [isDraggingFile, setIsDraggingFile] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const dragDepth = useRef(0)
   const scanWarning =
     attachment?.status === 'ready' ? scannedPdfWarning(attachment.file.summary) : null
 
@@ -49,9 +51,48 @@ export function Composer({
     setText('')
   }
 
+  const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes('Files')
+
+  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
+    if (disabled || !hasFiles(e)) return
+    e.preventDefault()
+    dragDepth.current += 1
+    setIsDraggingFile(true)
+  }
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    if (disabled || !hasFiles(e)) return
+    e.preventDefault()
+  }
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    if (disabled || !hasFiles(e)) return
+    e.preventDefault()
+    dragDepth.current = Math.max(0, dragDepth.current - 1)
+    if (dragDepth.current === 0) setIsDraggingFile(false)
+  }
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    if (disabled || !hasFiles(e)) return
+    e.preventDefault()
+    dragDepth.current = 0
+    setIsDraggingFile(false)
+    const file = e.dataTransfer.files[0]
+    if (file) onPickFile(file)
+  }
+
   return (
     <div className="bg-background px-6 pb-5 pt-3.5">
-      <div className="mx-auto w-full max-w-[760px]">
+      <div
+        className="relative mx-auto w-full max-w-[760px]"
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDraggingFile && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary">
+            <Upload className="size-4" />
+            Drop file to attach
+          </div>
+        )}
         <input
           ref={fileRef}
           type="file"
