@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_UPLOAD_BYTES,
   describeUploadError,
   describeUploadSummary,
   scannedPdfWarning,
@@ -37,12 +36,18 @@ describe('validateUpload', () => {
   it('rejects an empty upload', () => {
     expect(validateUpload(new File([], 'a.pdf'))).toBe('uploaded file is empty')
   })
-  it('accepts a file of exactly 10 MB', () => {
-    expect(validateUpload(fileOfSize('a.xlsx', MAX_UPLOAD_BYTES))).toBeNull()
+  // The size cap is the gateway's (settings.upload_max_bytes, env-overridable).
+  // The client must not mirror it, or a deployment that raises the limit is
+  // still blocked here.
+  it('accepts a file well over the gateway default of 10 MB', () => {
+    expect(validateUpload(fileOfSize('a.xlsx', 50 * 1024 * 1024))).toBeNull()
   })
-  it('rejects a file over 10 MB', () => {
-    expect(validateUpload(fileOfSize('a.xlsx', MAX_UPLOAD_BYTES + 1))).toBe(
-      'file exceeds the 10 MB limit',
+  it('accepts a file far beyond any plausible cap', () => {
+    expect(validateUpload(fileOfSize('a.pdf', 2 * 1024 * 1024 * 1024))).toBeNull()
+  })
+  it('still rejects a huge file with a disallowed extension', () => {
+    expect(validateUpload(fileOfSize('a.xls', 50 * 1024 * 1024))).toBe(
+      'only .xlsx, .csv, .pdf, .docx, .txt, .md and .json files are accepted',
     )
   })
 })
@@ -129,14 +134,24 @@ describe('describeUploadError', () => {
       'Payload Too Large',
     )
   })
+  // The gateway builds this string from its own configured cap, so whatever
+  // limit that deployment runs is the number the user sees.
+  it("surfaces the gateway's own size-limit wording", () => {
+    expect(
+      describeUploadError(new GatewayError(413, 'file exceeds the 10 MB limit')),
+    ).toBe('file exceeds the 10 MB limit')
+  })
   it('passes a 400 detail through verbatim', () => {
     expect(describeUploadError(new GatewayError(400, 'could not read the spreadsheet'))).toBe(
       'could not read the spreadsheet',
     )
   })
-  it('describes a network error', () => {
+  // A mid-stream 413 tears the connection down, so the browser reports a fetch
+  // TypeError rather than a readable response. The copy must not claim the
+  // gateway is down when an oversized file is the likelier cause.
+  it('describes a failed request without asserting the gateway is down', () => {
     expect(describeUploadError(new TypeError('Failed to fetch'))).toBe(
-      'Cannot reach the gateway. Is it running on port 8000?',
+      'Upload failed — the file may be too large, or the gateway is unreachable.',
     )
   })
 })

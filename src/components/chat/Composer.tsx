@@ -116,7 +116,7 @@ export function Composer({
             onClick={() => fileRef.current?.click()}
             disabled={disabled}
             aria-label="Attach a document"
-            title="Attach a document or spreadsheet (max 10 MB)"
+            title="Attach a document or spreadsheet"
             className="mb-0.5 grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Paperclip className="size-[18px]" />

@@ -5,14 +5,21 @@
  */
 import { GatewayError, type UploadSummary } from '@/lib/api'
 
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 export const UPLOAD_ACCEPT = '.pdf,.docx,.txt,.md,.json,.xlsx,.csv'
 
 const ALLOWED_EXT = ['.pdf', '.docx', '.txt', '.md', '.json', '.xlsx', '.csv']
 const ACCEPTED_FILE_ERROR =
   'only .xlsx, .csv, .pdf, .docx, .txt, .md and .json files are accepted'
 
-/** Return a user-facing rejection message, or null if the file is acceptable. */
+/**
+ * Return a user-facing rejection message, or null if the file is acceptable.
+ *
+ * Deliberately does NOT cap the size. The gateway owns that limit
+ * (`settings.upload_max_bytes`, env-overridable) and 413s with its own wording,
+ * so mirroring a hardcoded number here would silently disagree with a
+ * deployment that raised it. The extension and empty-file rules are hardcoded
+ * on both sides, so they cannot drift and stay client-side for instant feedback.
+ */
 export function validateUpload(file: File): string | null {
   const name = file.name.toLowerCase()
   if (!ALLOWED_EXT.some((ext) => name.endsWith(ext))) {
@@ -20,9 +27,6 @@ export function validateUpload(file: File): string | null {
   }
   if (file.size === 0) {
     return 'uploaded file is empty'
-  }
-  if (file.size > MAX_UPLOAD_BYTES) {
-    return 'file exceeds the 10 MB limit'
   }
   return null
 }
@@ -61,7 +65,10 @@ export function describeUploadError(err: unknown): string {
     return err.message
   }
   if (err instanceof TypeError) {
-    return 'Cannot reach the gateway. Is it running on port 8000?'
+    // The gateway enforces its size cap mid-stream and closes the connection,
+    // which browsers often surface as a fetch TypeError rather than a readable
+    // 413. Do not assert the gateway is down — name both causes.
+    return 'Upload failed — the file may be too large, or the gateway is unreachable.'
   }
   return err instanceof Error ? err.message : String(err)
 }
