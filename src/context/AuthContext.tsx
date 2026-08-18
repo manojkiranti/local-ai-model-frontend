@@ -39,12 +39,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserOut | null>(null)
   const [status, setStatus] = useState<AuthStatus>('loading')
 
-  // Any 401 anywhere clears the session and returns to /login.
+  // Any 401 anywhere clears the session and returns to /login. The token lasts
+  // 24h with no refresh flow, so a 401 always means expiry — `expired` lets the
+  // login page say so instead of appearing for no reason. A 403 is a different
+  // state entirely (signed in, not an admin) and never reaches this handler.
   useEffect(() => {
     registerUnauthorizedHandler(() => {
       setUser(null)
       setStatus('unauthenticated')
-      navigate('/login', { replace: true })
+      navigate('/login', { replace: true, state: { expired: true } })
     })
   }, [navigate])
 

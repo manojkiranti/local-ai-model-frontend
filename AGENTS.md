@@ -59,7 +59,7 @@ live unless those services were actually running and exercised.
 src/
 ├── App.tsx, main.tsx
 ├── components/
-│   ├── admin/          department RAG, ingestion, and member access
+│   ├── admin/          department RAG, ingestion, member access, NRB updates
 │   ├── agent/          tool traces, generated-file cards, live timeline
 │   ├── auth/           login and registration
 │   ├── chat/           composer, messages, Markdown, chat panel
@@ -141,7 +141,16 @@ explicitly includes backend work.
 12. **Change contracts end to end.** When a gateway field is added or removed,
     trace its types, request construction, hooks, components, retries, and
     tests. Do not leave a visually hidden unsupported option in outgoing JSON.
-13. **Tests are required for code changes.** Every bug fix, feature, behavior
+13. **Respect the NRB contract's four traps.** `POST /v1/nrb/runs` returns 202
+    and 409 with the SAME envelope — branch on `started`, render the run a 409
+    carries, never show it as a generic failure. `all_files` must stay
+    *unexpressible*: no such field on the request type, not merely unsent.
+    `GET /v1/nrb/status` is NOT a pure read — it settles finished runs, so the
+    poll is what advances an `awaiting_jobs` run; do not cache or dedupe it away.
+    And never claim runner health: the gateway does not serialise `heartbeat_at`,
+    so a stalled `queued` run is indistinguishable from one about to be claimed.
+    Read "is something running" from `active_run`, never from a status string.
+14. **Tests are required for code changes.** Every bug fix, feature, behavior
     change, or API-contract change must add or update automated tests covering
     the affected behavior. Do not consider the task complete until the relevant
     tests pass. If automated testing is genuinely impractical, explicitly
@@ -155,8 +164,18 @@ explicitly includes backend work.
 - Add regression coverage for request bodies and stateful semantics, especially
   authentication, 401 handling, `department`, `file_ids`, streaming events,
   upload validation, and retries.
-- `vite.config.ts` currently includes `src/**/*.test.ts`; use that suffix unless
-  the test configuration is intentionally expanded.
+- `vite.config.ts` includes `src/**/*.test.ts` **and** `src/**/*.test.tsx`. Use
+  `.test.ts` for pure logic, hooks, and the API client; use `.test.tsx` only when
+  the assertion is genuinely about rendered output (a disabled control, the exact
+  status wording).
+- Vitest does **not** run with `globals` here, so Testing Library's automatic
+  cleanup is never registered. Any `.test.tsx` that renders more than once must
+  call `cleanup()` in `afterEach`, or the DOM accumulates and queries fail with
+  "found multiple elements".
+- `@testing-library/jest-dom` is **not** installed: assert with plain matchers
+  (`expect(button.disabled).toBe(true)`), not `toBeInTheDocument()` /
+  `toBeDisabled()`. `@testing-library/user-event` is not installed either — use
+  `fireEvent`.
 
 ## Before changing a feature
 
@@ -169,6 +188,10 @@ explicitly includes backend work.
 - **Upload or attachment flow:** read `src/hooks/useAttachment.ts`,
   `src/lib/upload-validation.ts`, and the attachment tests in
   `src/hooks/useSessions.test.ts`.
+- **NRB operations:** read `src/hooks/useNrbOps.ts`, `src/lib/nrb-format.ts`, and
+  `src/components/admin/NrbOpsPage.test.tsx`, then hard rule 13. Pipeline
+  lifecycle logic belongs to the gateway (`app/nrb/pipeline.py`); this screen
+  reads and displays and computes nothing derived.
 - **Styling or theme work:** read the token definitions in `src/index.css` and
   inspect the existing shared UI primitive first.
 - **Routes or navigation:** follow `src/App.tsx`, then the nested routes in

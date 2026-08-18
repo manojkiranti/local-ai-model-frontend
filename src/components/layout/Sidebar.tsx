@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   PanelLeft,
   Plus,
+  RefreshCw,
   Search,
   Settings2,
   Trash2,
@@ -71,6 +72,7 @@ export function Sidebar({
   const [query, setQuery] = useState('')
   const onFiles = location.pathname === '/files'
   const onAdmin = location.pathname === '/admin'
+  const onNrb = location.pathname === '/admin/nrb'
   const groupedSessions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     const filtered = normalizedQuery
@@ -162,6 +164,19 @@ export function Sidebar({
             RAG Admin
           </button>
         )}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => openPage('/admin/nrb')}
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+              onNrb ? 'bg-primary/15 text-sidebar-foreground' : 'text-sidebar-foreground/80 hover:bg-white/5',
+            )}
+          >
+            <RefreshCw className={cn('size-4', onNrb ? 'text-primary' : 'text-sidebar-muted-foreground')} />
+            NRB Updates
+          </button>
+        )}
 
         <label className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2.5 text-sidebar-muted-foreground transition-colors focus-within:border-primary/50 focus-within:bg-white/10">
           <Search className="size-3.5 shrink-0" />
@@ -191,7 +206,7 @@ export function Sidebar({
               </div>
               <div className="space-y-0.5">
                 {group.sessions.map((session) => {
-                  const active = !onFiles && !onAdmin && session.id === activeId
+                  const active = !onFiles && !onAdmin && !onNrb && session.id === activeId
                   return (
                     <div
                       key={session.id}

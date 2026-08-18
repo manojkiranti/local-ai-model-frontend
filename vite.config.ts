@@ -23,6 +23,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.ts'],
+    // `.test.tsx` is included so component behaviour (disabled actions, status
+    // wording) can be asserted against rendered output, not just hook state.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
   },
 })

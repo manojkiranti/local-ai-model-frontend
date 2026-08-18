@@ -695,6 +695,127 @@ export async function archiveDepartmentDocument(
 }
 
 // --------------------------------------------------------------------------- //
+// NRB operations (admin only) — three endpoints, all enforced by the gateway's
+// `require_admin`. The client hides the UI; the backend is authoritative.
+// --------------------------------------------------------------------------- //
+/**
+ * `queued` accepted but not yet claimed · `running` the pipeline runner is
+ * staging · `awaiting_jobs` staging finished, the RAG worker has not ·
+ * `succeeded` / `partial` / `failed` terminal.
+ */
+export type NrbRunStatus =
+  | 'queued'
+  | 'running'
+  | 'awaiting_jobs'
+  | 'succeeded'
+  | 'partial'
+  | 'failed'
+
+/**
+ * One pipeline run — exactly the gateway's `RunOut`. `counters` and `jobs` are
+ * open maps on purpose: a stage may add a counter key without a schema change,
+ * so consumers must iterate rather than read fixed fields.
+ */
+export interface NrbRun {
+  id: number
+  trigger: string
+  requested_by: string | null
+  /** Widened to `string` so an unknown backend status still renders as itself. */
+  status: NrbRunStatus | string
+  stage: string
+  department: string | null
+  scope: Record<string, unknown>
+  counters: Record<string, unknown>
+  error: string | null
+  jobs: Record<string, number>
+  created_at: string | null
+  started_at: string | null
+  finished_at: string | null
+}
+
+/**
+ * Operational state (`GET /v1/nrb/status`).
+ *
+ * NOT a pure read: the handler settles finished runs and commits, which is what
+ * advances an `awaiting_jobs` run whose jobs have all completed. Do not dedupe
+ * or cache the poll away.
+ *
+ * `active_run` non-null is the one signal that a trigger would be refused — read
+ * it directly rather than deriving "is something running" from a status string.
+ */
+export interface NrbStatus {
+  active_run: NrbRun | null
+  latest_run: NrbRun | null
+  catalog: Record<string, number>
+  files: Record<string, number>
+  /** Mixed: scalars plus nested `documents` / `jobs` status maps. */
+  rag: Record<string, number | Record<string, number>>
+}
+
+/**
+ * The trigger body — a deliberate SUBSET of the gateway's `RunTriggerIn`.
+ *
+ * There is no `all_files` field and there must never be one: a full-corpus run
+ * is deliberately not available over HTTP, so it is unexpressible here rather
+ * than merely unsent. The gateway also rejects an unbounded request (422), so at
+ * least one of `limit` / `years` / `sections` / `owners` / `extensions` must be
+ * present.
+ */
+export interface NrbRunTrigger {
+  /** Required whenever `rag` is among the stages. */
+  department?: string
+  stages: string[]
+  sections?: string[]
+  owners?: string[]
+  years?: number[]
+  extensions?: string[]
+  limit?: number
+  retry_failed: boolean
+}
+
+/** One envelope for both outcomes of `POST /v1/nrb/runs` (202 and 409). */
+export interface NrbTriggerResult {
+  /** true = accepted (202). false = an update was already in progress (409). */
+  started: boolean
+  /**
+   * On 202 the queued run; on 409 the update ALREADY in progress — render it,
+   * never discard it. Null only when a lock is held before its row is visible.
+   */
+  run: NrbRun | null
+  detail: string | null
+}
+
+export async function getNrbStatus(signal?: AbortSignal): Promise<NrbStatus> {
+  return request<NrbStatus>('/v1/nrb/status', { method: 'GET' }, signal)
+}
+
+export async function getNrbRun(id: number, signal?: AbortSignal): Promise<NrbRun> {
+  return request<NrbRun>(`/v1/nrb/runs/${id}`, { method: 'GET' }, signal)
+}
+
+/**
+ * Request an NRB update.
+ *
+ * 409 is NOT an error: it shares `RunTriggerOut` with 202 and carries the run
+ * already in progress, so both statuses resolve to a `NrbTriggerResult` and the
+ * caller branches on `started`. Everything else (403 non-admin, 422 unbounded
+ * scope) throws a `GatewayError` carrying the gateway's `detail`; 401 is handled
+ * globally by `rawFetch`.
+ */
+export async function triggerNrbRun(
+  body: NrbRunTrigger,
+  signal?: AbortSignal,
+): Promise<NrbTriggerResult> {
+  const res = await rawFetch(
+    '/v1/nrb/runs',
+    { method: 'POST', body: JSON.stringify(body) },
+    signal,
+  )
+  if (!res.ok && res.status !== 409) throw await errorFromResponse(res)
+  return res.json() as Promise<NrbTriggerResult>
+}
+
+// --------------------------------------------------------------------------- //
 // Vector math (unit tested)
 // --------------------------------------------------------------------------- //
 /** Cosine similarity of two equal-length vectors; NaN for empty/mismatched. */

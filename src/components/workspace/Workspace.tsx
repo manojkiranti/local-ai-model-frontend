@@ -6,6 +6,7 @@ import { Sidebar } from '@/components/layout/Sidebar'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { FilesPage } from '@/components/files/FilesPage'
 import { AdminRagPage } from '@/components/admin/AdminRagPage'
+import { NrbOpsPage } from '@/components/admin/NrbOpsPage'
 import { useHealth } from '@/hooks/useHealth'
 import { useSessions } from '@/hooks/useSessions'
 import { useTheme } from '@/hooks/useTheme'
@@ -132,6 +133,16 @@ export function Workspace() {
                     <Navigate to="/" replace />
                   )
                 }
+              />
+              {/*
+                No client-side redirect here: the page itself reports a 403 from
+                the gateway, which is a different state from an expired session
+                and must not bounce anyone to login. The backend remains
+                authoritative either way.
+              */}
+              <Route
+                path="admin/nrb"
+                element={<NrbOpsPage departments={departmentState.departments} />}
               />
             </Routes>
           </div>

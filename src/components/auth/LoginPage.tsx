@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +12,9 @@ import { AuthShell } from './AuthShell'
 export function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  // Set by the 401 handler in AuthContext; absent on an ordinary visit.
+  const expired = (location.state as { expired?: boolean } | null)?.expired === true
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({})
@@ -52,6 +55,15 @@ export function LoginPage() {
       }
     >
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+        {expired && (
+          <p
+            role="status"
+            className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground"
+          >
+            Your session expired. Please sign in again.
+          </p>
+        )}
+
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="email">Email</Label>
           <Input

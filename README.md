@@ -44,6 +44,9 @@ Authoritative live spec: `http://localhost:8000/openapi.json` (Swagger at
 | GET/POST/DELETE | `/v1/departments/{code}/members[...]` | bearer + admin | List, grant, and revoke department access. |
 | GET/POST/DELETE | `/v1/departments/{code}/documents[...]` | bearer (writes admin-only) | List corpus documents; upload files, add text, and archive documents. Uploads return 202. |
 | GET | `/v1/ingest-jobs/{job_id}` | bearer + admin | Poll asynchronous document ingestion progress. |
+| GET | `/v1/nrb/status` | bearer + admin | Operational state `{active_run, latest_run, catalog, files, rag}`. **Not a pure read** — the handler settles finished runs and commits, so polling it is what advances an `awaiting_jobs` run. `catalog`/`files` are flat `{string:int}`; `rag` mixes scalars with nested `documents`/`jobs` maps. |
+| POST | `/v1/nrb/runs` | bearer + admin | Trigger an update. **202 and 409 share one envelope** `{started, run, detail}` — a 409 carries the run already in progress. A bounded scope is required (422 otherwise); `all_files` is deliberately unavailable over HTTP. |
+| GET | `/v1/nrb/runs/{id}` | bearer + admin | One run (`RunOut`), reconciled if still waiting. Terminal runs are frozen. |
 
 Error bodies are FastAPI-style `{"detail": "..."}`. This client maps
 `404 → "model not available on the server"`, `502 → "inference service is
@@ -92,9 +95,30 @@ unavailable"`, otherwise it surfaces `detail`.
   departments, uploading PDF/DOCX/XLSX/CSV or typed knowledge, watching the 202
   ingestion job progress every two seconds, archiving documents, and granting or
   revoking members. Members are redirected away from the route.
+- **NRB updates** — admins get a `/admin/nrb` screen over the three `/v1/nrb`
+  endpoints: the update in progress (or the latest result) with its status,
+  stage, timestamps, counters, job counts and failure text; and the catalog /
+  files / RAG count blocks, rendered by **iterating whatever keys the gateway
+  returned** so a new counter appears without a frontend change. `bytes_on_disk`
+  is formatted as a size. Both actions are disabled while `active_run` is
+  non-null, and the primary submit stays disabled until a department **and** at
+  least one bound (limit / years / sections / owners / extensions) are set —
+  there is no default bound, so "Succeeded" never means an arbitrary slice.
+  "Retry failed ingest" sends `stages:["rag"]` with `retry_failed:true`. Polling
+  is every 5s and only while a run is active; a failed poll keeps the last good
+  status on screen. A **409 renders the in-progress run**, not an error. A
+  **403** says the account is not an administrator without returning to login;
+  a **401** anywhere ends the session and returns to login with a
+  "session expired" notice.
 
 `/v1/tools` and the Embeddings playground are part of the Gateway contract but
 **not yet surfaced** here (those components remain on disk, unmounted).
+
+> **Runner health is not observable.** The gateway does not expose whether the
+> NRB pipeline runner process is alive (`heartbeat_at` is not serialised), so a
+> `queued` run that sits still is indistinguishable from one about to be
+> claimed. The UI says only "waiting for the NRB pipeline runner to claim it"
+> and must never infer "no runner" from elapsed time.
 
 ## Prerequisites
 
@@ -118,7 +142,17 @@ cd ../../python/local-ai-model-gateway
 ```bash
 cp .env.example .env      # VITE_API_BASE_URL=http://localhost:8000 (default)
 npm install
-npm run dev               # http://localhost:5173
+npm run dev               # http://localhost:3000 (vite.config.ts pins this port)
+```
+
+The NRB updates screen additionally needs **two background processes** the
+Gateway does not start for you — without them a triggered run is accepted and
+then waits, which is exactly what the screen will say:
+
+```bash
+cd ../../python/local-ai-model-gateway
+.venv/bin/python -m app.nrb.runner   # claims queued runs → sync/fetch/extract/rag
+.venv/bin/python -m app.rag.worker   # chunk/embed → moves `Indexing` to a verdict
 ```
 
 Point at a different Gateway by setting `VITE_API_BASE_URL`. CORS is enabled on
@@ -140,19 +174,46 @@ src/
   lib/          api.ts (the ONE gateway client: bearer + 401 handling + NDJSON stream),
                 auth-token.ts, auth-validation.ts, config.ts, chat-config.ts, utils.ts
   context/      AuthContext (session, login/register/logout)
-  hooks/        useAuth, useSessions (server-owned chat), useHealth, useTheme  (useModels/useTools: unmounted)
+  hooks/        useAuth, useSessions (server-owned chat), useHealth, useTheme,
+                useNrbOps (NRB status + polling + trigger)  (useModels/useTools: unmounted)
   components/
     ui/         shadcn-style primitives (button, input, label, dropdown-menu, …)
     auth/       LoginPage, RegisterPage, AuthShell
     routing/    ProtectedRoute, PublicOnly, FullScreenSpinner
-    workspace/  Workspace (app shell: nested routes — chat index + /files)
-    admin/      AdminRagPage (departments, corpus ingestion, member access)
+    workspace/  Workspace (app shell: nested routes — chat index + /files + /admin*)
+    admin/      AdminRagPage (departments, corpus ingestion, member access),
+                NrbOpsPage + NrbStatusBlock (NRB updates: /v1/nrb)
     files/      FilesPage (My Files: GET /v1/files list + bearer-fetch download)
     layout/     Header (account menu), Sidebar (chat + My Files nav), StatusDot
     chat/       ChatPanel, MessageList, MessageBubble, Composer, GenerationSettings
     agent/ embeddings/   present but unmounted (await Gateway slices in this UI)
   App.tsx       routes;  main.tsx  BrowserRouter + AuthProvider
 ```
+
+## Evaluation & Improvement — NRB updates screen
+
+1. **Success metric.** Share of NRB corpus updates an admin can start and follow
+   to a correct terminal verdict **without opening a terminal or the database** —
+   measured as: triggered runs whose outcome the operator read off this screen ÷
+   all triggered runs. The nearest proxy while volume is low is the count of
+   `trigger: "api"` rows in `nrb_pipeline_runs` versus `cli`.
+2. **Eval.** The labelled set is `src/components/admin/NrbOpsPage.test.tsx`
+   (22 cases) plus `src/lib/nrb-format.test.ts` and `src/lib/nrb-api.test.ts`.
+   It fixes the payloads the gateway actually returns and scores the rendered
+   output against them, covering the four failure modes that make this screen
+   misleading rather than merely ugly: a 409 shown as an error, a silent default
+   bound, `running` confused with `awaiting_jobs`, and any claim about runner
+   health. **Current pass rate: 157/157** (`npm run test`, whole suite).
+   Not yet exercised against a live gateway.
+3. **Feedback capture.** The screen itself captures none — it is read-only over
+   `/v1/nrb`, and the durable record is the gateway's own `nrb_pipeline_runs`
+   table (`trigger`, `requested_by`, `scope`, `counters`, `error`), which already
+   says who asked for what and how it ended. Operator corrections arrive as
+   changes to the eval set above; add a case before changing behaviour.
+4. **Review loop.** Re-run the eval on every change to `/v1/nrb` or to this
+   screen, and review monthly: check whether any counter key rendered as an
+   unlabelled fallback (a stage added one), and whether the bounds offered still
+   match `RunTriggerIn`.
 
 See `docs/superpowers/specs/2026-07-30-auth-gateway-wiring-design.md` and
 `docs/superpowers/plans/2026-07-30-auth-gateway-wiring.md` for the auth design
