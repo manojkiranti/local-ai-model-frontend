@@ -37,7 +37,9 @@ Authoritative live spec: `http://localhost:8000/openapi.json` (Swagger at
 | GET  | `/v1/sessions/{id}` | bearer | Full thread `{…, messages:[{id, seq, role, content, trace, model, created_at}]}`. Assistant rows whose turn called tools carry non-null `trace`. 404 = gone. |
 | DELETE | `/v1/sessions/{id}` | bearer | Delete a conversation → 204. |
 | GET  | `/v1/tools` | bearer | Tools the model can use. |
+| POST | `/v1/files` | bearer | Attach a file to a chat turn — `multipart/form-data`, field **`file`** → 201 `{id, filename, media_type, size, source, summary}`. Accepts `.xlsx .csv .pdf .docx .txt .md .json` and images `.png .jpg .jpeg .webp .tif .tiff .bmp`. `summary` is per kind: spreadsheet (`total_rows`, `sheets`), document (`pages`, `text_pages`, `lines`, `chars`), or image (`width`, `height`, `frames`). Errors are `{"detail": …}`: 400 bad extension / not really an image / decoded-pixel bomb / empty, 413 over `upload_max_bytes` (10 MB by default, deployment-configurable). |
 | GET  | `/v1/files` | bearer | The current user's generated files `{files:[{id, filename, media_type, size, created_at}]}`, newest-first and owner-scoped server-side. |
+| DELETE | `/v1/files/{id}` | bearer | Delete an uploaded or generated file → 204; 404 = already gone. |
 | GET  | `/v1/files/{id}` | bearer | Download a generated file — fetch **with** the bearer header and turn the response into a blob URL (a plain `<a href>` can't send the header). Owner-scoped: 404 = not yours / gone. |
 | GET | `/v1/departments` | bearer | Available RAG departments. Members receive only active granted departments; admins receive every department. |
 | POST/PATCH | `/v1/departments[/{code}]` | bearer + admin | Create, rename, enable, and disable departments. |
@@ -70,6 +72,28 @@ unavailable"`, otherwise it surfaces `detail`.
 - **Tool turns** render a collapsible **"How it worked"** trace panel
   (iterations → tool calls: name / args / status / result), for both live turns
   and rows loaded from history (`trace != null`).
+- **Attachments and image OCR** — the composer attaches one file per turn
+  (`POST /v1/files`, drag-and-drop or the paperclip; phones also get a camera
+  button using `capture="environment"`). Documents, spreadsheets, and images are
+  accepted; the chip shows a local preview immediately and the gateway's own
+  summary once the 201 lands (`PNG image · 900 × 420`). The id goes out as
+  `file_ids` on **that turn only**, and the model reads it with `read_document` /
+  `read_image` — the live timeline says **"reading payslip.png…"** while it does.
+  Content that will *not* reach the model is stated up front: a PDF with no text
+  layer, and a multi-frame image where **only the first page is OCR'd**. HEIC/HEIF
+  is rejected client-side with export-as-JPEG guidance rather than a generic
+  failure; the size cap stays the gateway's, so its own 413 wording is what the
+  user sees. Because only the newest attachment set is active server-side, older
+  attachment chips are marked **superseded**.
+  Any answer whose turn called `read_image` carries an **OCR provenance note** —
+  "text read from image by OCR — check figures, dates and account numbers against
+  the original" — plus one-click full-size view of the image. That note is driven
+  off the tool signal (live events, or the persisted trace after a reload), never
+  off the model's wording: the model has read a payslip's `6,518.00` correctly and
+  answered `NPR 6,518.00`, inventing a currency and relaying no caveat. OCR is
+  **text extraction only** — not chart or image interpretation — and an
+  OCR-unavailable or no-text-found deployment answers 200 with an explanation,
+  which is not an upload failure.
 - **Files** produced by tools render **inline as cards**. Every `/v1/files/<id>`
   reference is detected in **both** the answer text and the trace, fetched
   **with** the bearer header (a plain `<a href>` can't), and rendered by the
@@ -185,7 +209,8 @@ src/
                 NrbOpsPage + NrbStatusBlock (NRB updates: /v1/nrb)
     files/      FilesPage (My Files: GET /v1/files list + bearer-fetch download)
     layout/     Header (account menu), Sidebar (chat + My Files nav), StatusDot
-    chat/       ChatPanel, MessageList, MessageBubble, Composer, GenerationSettings
+    chat/       ChatPanel, MessageList, MessageBubble, Composer, MarkdownContent,
+                ImageLightbox, ImageThumb, OcrNotice
     agent/ embeddings/   present but unmounted (await Gateway slices in this UI)
   App.tsx       routes;  main.tsx  BrowserRouter + AuthProvider
 ```

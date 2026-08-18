@@ -12,6 +12,13 @@ import {
   type TraceEntry,
 } from '@/lib/api'
 import { extractFileRefs, type FileRef } from '@/lib/agent-api'
+import {
+  READ_IMAGE_TOOL,
+  mergeOcr,
+  ocrFromTrace,
+  readImageFileId,
+  type OcrProvenance,
+} from '@/lib/ocr-provenance'
 import { uid } from '@/lib/uid'
 
 export type MessageStatus = 'streaming' | 'done' | 'error'
@@ -29,6 +36,17 @@ export interface AttachmentDescriptor {
   filename: string
   summaryLine: string
   warning?: string
+  /** True for an OCR-able raster image — the bubble shows a thumbnail. */
+  isImage?: boolean
+}
+
+/** An uploaded file stamped onto the user bubble that sent it. */
+export interface MessageAttachment {
+  fileId: string
+  filename: string
+  summaryLine: string
+  warning?: string
+  isImage?: boolean
 }
 
 /** One rendered chat bubble — from server history or an in-flight optimistic turn. */
@@ -49,8 +67,10 @@ export interface UIMessage {
   /** file_ids to re-send on Retry (mirrors the original turn's attachment). */
   retryFileIds?: string[]
   retryAttachmentName?: string
-  /** Present on a user bubble that carried an uploaded document. */
-  attachment?: { filename: string; summaryLine: string; warning?: string }
+  /** Present on a user bubble that carried an uploaded file. */
+  attachment?: MessageAttachment
+  /** Present when this turn read an image by OCR → renders the provenance note. */
+  ocr?: OcrProvenance
 }
 
 /** Mark the most recent still-running call with this name as finished. */
@@ -78,6 +98,7 @@ function threadToUI(m: ThreadMessage, index: number, thread: ThreadMessage[]): U
     trace: m.trace,
     files: extractFileRefs(m.content, m.trace),
     model: m.model,
+    ...(m.role === 'assistant' ? { ocr: ocrFromTrace(m.trace) ?? undefined } : {}),
     ...(m.role === 'assistant' && index > 0 && thread[index - 1]?.role === 'user'
       ? { retryText: thread[index - 1].content }
       : {}),
@@ -179,6 +200,9 @@ export function useSessions() {
       attachmentName?: string,
     ) => {
       const sessionForTurn = activeIdRef.current ?? undefined
+      // read_image ids arrive on `tool_call`, but only `tool_result` says whether
+      // the read succeeded — so queue the id and commit it when the result lands.
+      const pendingImageIds: Array<string | null> = []
       const controller = new AbortController()
       controllerRef.current = controller
       setSending(true)
@@ -209,13 +233,23 @@ export function useSessions() {
             if (delta) patch(assistantId, (m) => ({ content: m.content + delta }))
           } else if (ev.type === 'tool_call') {
             const readingFilename = attachmentName ?? activeAttachmentNameRef.current
+            const isRead = ev.name === 'read_document' || ev.name === READ_IMAGE_TOOL
+            if (ev.name === READ_IMAGE_TOOL) {
+              pendingImageIds.push(readImageFileId(ev.arguments))
+            }
             patch(assistantId, (m) => ({
               liveTools: [
                 ...(m.liveTools ?? []),
                 {
                   name: ev.name,
-                  ...(ev.name === 'read_document' && readingFilename
-                    ? { label: `reading ${readingFilename}…` }
+                  ...(isRead
+                    ? {
+                        label: readingFilename
+                          ? `reading ${readingFilename}…`
+                          : ev.name === READ_IMAGE_TOOL
+                            ? 'reading image…'
+                            : 'reading document…',
+                      }
                     : {}),
                   status: 'running',
                   iteration: ev.iteration,
@@ -223,8 +257,18 @@ export function useSessions() {
               ],
             }))
           } else if (ev.type === 'tool_result') {
+            const readImageId =
+              ev.name === READ_IMAGE_TOOL ? (pendingImageIds.shift() ?? null) : null
+            const succeededOcr = ev.name === READ_IMAGE_TOOL && ev.status === 'ok'
             patch(assistantId, (m) => ({
               liveTools: settleTool(m.liveTools, ev.name, ev.status),
+              ...(succeededOcr
+                ? {
+                    ocr:
+                      mergeOcr(m.ocr, { imageIds: readImageId ? [readImageId] : [] }) ??
+                      undefined,
+                  }
+                : {}),
             }))
           } else if (ev.type === 'done') {
             adopt(ev.session_id)
@@ -252,6 +296,7 @@ export function useSessions() {
                   trace,
                   files: extractFileRefs(finalContent, trace),
                   liveTools: undefined,
+                  ocr: mergeOcr(m.ocr, ocrFromTrace(trace)) ?? undefined,
                 }
               })
             }
@@ -318,8 +363,10 @@ export function useSessions() {
           ...(attachment
             ? {
                 attachment: {
+                  fileId: attachment.id,
                   filename: attachment.filename,
                   summaryLine: attachment.summaryLine,
+                  ...(attachment.isImage ? { isImage: true } : {}),
                   ...(attachment.warning ? { warning: attachment.warning } : {}),
                 },
               }
@@ -356,6 +403,7 @@ export function useSessions() {
             trace: undefined,
             files: undefined,
             liveTools: undefined,
+            ocr: undefined,
             retryFileIds: undefined,
             retryAttachmentName: undefined,
           }

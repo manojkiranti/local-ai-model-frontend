@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, Check, Copy, FileText, RotateCw } from 'lucide-react'
+import { AlertTriangle, Check, Copy, FileText, Layers, RotateCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MarkdownContent } from './MarkdownContent'
 import { BurstLogo } from '@/components/brand/BurstLogo'
@@ -8,15 +8,30 @@ import { TracePanel } from '@/components/agent/TracePanel'
 import { ToolTimeline } from '@/components/agent/ToolTimeline'
 import { stripFileRefs } from '@/lib/agent-api'
 import type { UIMessage } from '@/hooks/useSessions'
+import { ImageLightbox } from './ImageLightbox'
+import { ImageThumb } from './ImageThumb'
+import { OcrNotice } from './OcrNotice'
 
 interface MessageBubbleProps {
   message: UIMessage
   onRetry?: (assistantId: string, text: string) => void
   canRetry?: boolean
+  /**
+   * A newer attachment has replaced this one. The gateway marks earlier
+   * attachment sets superseded and the model uses the newest unless the user
+   * names an older file, so the UI must not imply both are equally available.
+   */
+  attachmentSuperseded?: boolean
 }
 
-export function MessageBubble({ message, onRetry, canRetry = true }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  onRetry,
+  canRetry = true,
+  attachmentSuperseded = false,
+}: MessageBubbleProps) {
   const [copied, setCopied] = useState(false)
+  const [imageOpen, setImageOpen] = useState(false)
 
   if (message.role === 'user') {
     return (
@@ -28,7 +43,15 @@ export function MessageBubble({ message, onRetry, canRetry = true }: MessageBubb
           {message.attachment && (
             <div className="max-w-full rounded-xl border bg-card px-3 py-2 text-xs">
               <div className="flex items-center gap-2">
-                <FileText className="size-4 shrink-0 text-primary" />
+                {message.attachment.isImage ? (
+                  <ImageThumb
+                    fileId={message.attachment.fileId}
+                    filename={message.attachment.filename}
+                    onOpen={() => setImageOpen(true)}
+                  />
+                ) : (
+                  <FileText className="size-4 shrink-0 text-primary" />
+                )}
                 <span className="min-w-0 truncate font-medium">{message.attachment.filename}</span>
                 <span className="shrink-0 text-muted-foreground">{message.attachment.summaryLine}</span>
               </div>
@@ -37,6 +60,21 @@ export function MessageBubble({ message, onRetry, canRetry = true }: MessageBubb
                   <AlertTriangle className="mt-0.5 size-3 shrink-0" />
                   <span>{message.attachment.warning}</span>
                 </div>
+              )}
+              {attachmentSuperseded && (
+                <div className="mt-1.5 flex items-start gap-1.5 text-muted-foreground">
+                  <Layers className="mt-0.5 size-3 shrink-0" />
+                  <span>
+                    Superseded by a newer attachment — name this file to use it again.
+                  </span>
+                </div>
+              )}
+              {imageOpen && message.attachment.isImage && (
+                <ImageLightbox
+                  fileId={message.attachment.fileId}
+                  filename={message.attachment.filename}
+                  onClose={() => setImageOpen(false)}
+                />
               )}
             </div>
           )}
@@ -66,6 +104,10 @@ export function MessageBubble({ message, onRetry, canRetry = true }: MessageBubb
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         {message.liveTools && message.liveTools.length > 0 && (
           <ToolTimeline tools={message.liveTools} />
+        )}
+
+        {message.ocr && message.status !== 'error' && (
+          <OcrNotice imageIds={message.ocr.imageIds} />
         )}
 
         {message.status === 'error' ? (

@@ -443,7 +443,23 @@ export interface DocumentUploadSummary {
   text_pages: number
 }
 
-export type UploadSummary = SpreadsheetUploadSummary | DocumentUploadSummary
+/**
+ * An uploaded raster image (`.png .jpg .jpeg .webp .tif .tiff .bmp`). `frames`
+ * comes from the container (a scanned `.tif` routinely holds several) and
+ * matters to the user: the OCR tool reads the FIRST frame only.
+ */
+export interface ImageUploadSummary {
+  /** Human label the gateway picks, e.g. "PNG image". */
+  kind: string
+  width: number
+  height: number
+  frames: number
+}
+
+export type UploadSummary =
+  | SpreadsheetUploadSummary
+  | DocumentUploadSummary
+  | ImageUploadSummary
 
 export interface UploadedFile {
   id: string
@@ -465,7 +481,7 @@ export interface GatewayFile {
 }
 
 /**
- * Upload a document or spreadsheet (`POST /v1/files`, multipart). The browser sets the
+ * Upload a document, spreadsheet, or image (`POST /v1/files`, multipart). The browser sets the
  * multipart Content-Type/boundary — do NOT set it manually. Bearer + global 401
  * come from `rawFetch`; non-2xx throws a GatewayError carrying the detail.
  */

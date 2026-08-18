@@ -1,5 +1,6 @@
-import { BookOpenText, Check, Loader2, TriangleAlert, Wrench, X } from 'lucide-react'
+import { BookOpenText, Check, Loader2, ScanText, TriangleAlert, Wrench, X } from 'lucide-react'
 import type { LiveTool } from '@/hooks/useSessions'
+import { READ_IMAGE_TOOL } from '@/lib/ocr-provenance'
 
 /** Live timeline of tool calls while a turn streams (before the final trace). */
 export function ToolTimeline({ tools }: { tools: LiveTool[] }) {
@@ -7,7 +8,9 @@ export function ToolTimeline({ tools }: { tools: LiveTool[] }) {
     <div className="flex flex-col gap-1.5 rounded-xl border bg-card/60 px-3 py-2.5">
       {tools.map((tool, i) => (
         <div key={`${tool.name}-${i}`} className="flex items-center gap-2 text-xs">
-          {tool.name === 'read_document' ? (
+          {tool.name === READ_IMAGE_TOOL ? (
+            <ScanText className="size-3.5 shrink-0 text-primary" />
+          ) : tool.name === 'read_document' ? (
             <BookOpenText className="size-3.5 shrink-0 text-primary" />
           ) : (
             <Wrench className="size-3.5 shrink-0 text-muted-foreground" />

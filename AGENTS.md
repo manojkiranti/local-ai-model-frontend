@@ -128,20 +128,27 @@ explicitly includes backend work.
 8. **Surface gateway errors faithfully.** FastAPI errors use
    `{ "detail": "..." }`. Preserve useful backend detail, including upload
    errors. Keep any deliberate status-specific wording covered by tests.
-9. **Handle protected files through fetch.** Downloads and previews require a
-   bearer-authenticated fetch followed by a blob URL; a plain anchor to the API
-   cannot add the header. Revoke blob URLs when no longer needed. Never inject
-   returned HTML or SVG unsafely; keep HTML sandboxed and SVG image-loaded.
-10. **Treat ingestion acceptance as pending.** Department document uploads and
+9. **Never trust the model to relay the OCR caveat.** `read_image` warns the
+   model that its text is machine-read and that figures need verifying, and the
+   model does not reliably pass that on. The provenance note is derived from the
+   tool signal — live `tool_call`/`tool_result` events, or `read_image` entries in
+   a persisted trace (`src/lib/ocr-provenance.ts`) — never from the answer text.
+   Keep the original image reachable for comparison, and never describe the
+   feature as image *interpretation*: the backend does text extraction only.
+10. **Handle protected files through fetch.** Downloads and previews require a
+    bearer-authenticated fetch followed by a blob URL; a plain anchor to the API
+    cannot add the header. Revoke blob URLs when no longer needed. Never inject
+    returned HTML or SVG unsafely; keep HTML sandboxed and SVG image-loaded.
+11. **Treat ingestion acceptance as pending.** Department document uploads and
     text ingestion return HTTP 202. Continue polling `/v1/ingest-jobs/{job_id}`
     until `succeeded` or `failed`; do not present queue acceptance as success.
-11. **Keep role enforcement layered.** The client may hide or redirect admin
+12. **Keep role enforcement layered.** The client may hide or redirect admin
     UI, but the backend remains authoritative for authorization. Do not rely on
     client-side checks as a security boundary.
-12. **Change contracts end to end.** When a gateway field is added or removed,
+13. **Change contracts end to end.** When a gateway field is added or removed,
     trace its types, request construction, hooks, components, retries, and
     tests. Do not leave a visually hidden unsupported option in outgoing JSON.
-13. **Respect the NRB contract's four traps.** `POST /v1/nrb/runs` returns 202
+14. **Respect the NRB contract's four traps.** `POST /v1/nrb/runs` returns 202
     and 409 with the SAME envelope — branch on `started`, render the run a 409
     carries, never show it as a generic failure. `all_files` must stay
     *unexpressible*: no such field on the request type, not merely unsent.
@@ -150,7 +157,7 @@ explicitly includes backend work.
     And never claim runner health: the gateway does not serialise `heartbeat_at`,
     so a stalled `queued` run is indistinguishable from one about to be claimed.
     Read "is something running" from `active_run`, never from a status string.
-14. **Tests are required for code changes.** Every bug fix, feature, behavior
+15. **Tests are required for code changes.** Every bug fix, feature, behavior
     change, or API-contract change must add or update automated tests covering
     the affected behavior. Do not consider the task complete until the relevant
     tests pass. If automated testing is genuinely impractical, explicitly
@@ -187,9 +194,11 @@ explicitly includes backend work.
   `src/lib/auth-token.ts`.
 - **Upload or attachment flow:** read `src/hooks/useAttachment.ts`,
   `src/lib/upload-validation.ts`, and the attachment tests in
-  `src/hooks/useSessions.test.ts`.
+  `src/hooks/useSessions.test.ts`. Images add `src/lib/ocr-provenance.ts`,
+  `src/hooks/useAuthedImageUrl.ts`, and the chat components `ImageThumb`,
+  `ImageLightbox`, and `OcrNotice`.
 - **NRB operations:** read `src/hooks/useNrbOps.ts`, `src/lib/nrb-format.ts`, and
-  `src/components/admin/NrbOpsPage.test.tsx`, then hard rule 13. Pipeline
+  `src/components/admin/NrbOpsPage.test.tsx`, then hard rule 14. Pipeline
   lifecycle logic belongs to the gateway (`app/nrb/pipeline.py`); this screen
   reads and displays and computes nothing derived.
 - **Styling or theme work:** read the token definitions in `src/index.css` and

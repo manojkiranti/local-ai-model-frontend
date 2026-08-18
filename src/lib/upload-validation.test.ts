@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
+  attachmentWarning,
   describeUploadError,
   describeUploadSummary,
-  scannedPdfWarning,
+  isImageFilename,
   validateUpload,
 } from '@/lib/upload-validation'
 import { GatewayError } from '@/lib/api'
+
+const REJECTION =
+  'only .xlsx, .csv, .pdf, .docx, .txt, .md, .json and images (.png, .jpg, .jpeg, .webp, .tif, .tiff, .bmp) are accepted'
 
 function fileOfSize(name: string, bytes: number): File {
   // A File whose .size is `bytes` without allocating that much memory.
@@ -30,8 +34,27 @@ describe('validateUpload', () => {
   })
   it('rejects .xls', () => {
     expect(validateUpload(new File(['x'], 'a.xls'))).toBe(
-      'only .xlsx, .csv, .pdf, .docx, .txt, .md and .json files are accepted',
+      REJECTION,
     )
+  })
+  it.each(['png', 'jpg', 'jpeg', 'webp', 'tif', 'tiff', 'bmp'])(
+    'accepts .%s images',
+    (ext) => {
+      expect(validateUpload(new File(['x'], `scan.${ext}`))).toBeNull()
+    },
+  )
+  it('accepts an uppercase image extension', () => {
+    expect(validateUpload(new File(['x'], 'SCAN.JPEG'))).toBeNull()
+  })
+  // iOS shares photos as HEIC and the gateway 400s on it. A generic "not
+  // accepted" list leaves the user guessing which of seven extensions to try.
+  it.each(['heic', 'HEIC', 'heif'])('rejects .%s with export-as-JPEG guidance', (ext) => {
+    expect(validateUpload(new File(['x'], `photo.${ext}`))).toBe(
+      "HEIC/HEIF photos aren't supported — export or save the photo as JPEG and attach that.",
+    )
+  })
+  it('rejects .gif with the accepted-types list, not the HEIC message', () => {
+    expect(validateUpload(new File(['x'], 'a.gif'))).toBe(REJECTION)
   })
   it('rejects an empty upload', () => {
     expect(validateUpload(new File([], 'a.pdf'))).toBe('uploaded file is empty')
@@ -42,13 +65,23 @@ describe('validateUpload', () => {
   it('accepts a file well over the gateway default of 10 MB', () => {
     expect(validateUpload(fileOfSize('a.xlsx', 50 * 1024 * 1024))).toBeNull()
   })
+  it('accepts an image well over the gateway default of 10 MB', () => {
+    expect(validateUpload(fileOfSize('scan.png', 12 * 1024 * 1024))).toBeNull()
+  })
   it('accepts a file far beyond any plausible cap', () => {
     expect(validateUpload(fileOfSize('a.pdf', 2 * 1024 * 1024 * 1024))).toBeNull()
   })
   it('still rejects a huge file with a disallowed extension', () => {
-    expect(validateUpload(fileOfSize('a.xls', 50 * 1024 * 1024))).toBe(
-      'only .xlsx, .csv, .pdf, .docx, .txt, .md and .json files are accepted',
-    )
+    expect(validateUpload(fileOfSize('a.xls', 50 * 1024 * 1024))).toBe(REJECTION)
+  })
+})
+
+describe('isImageFilename', () => {
+  it.each(['a.png', 'a.JPG', 'scan.tiff', 'x.webp', 'y.bmp'])('is true for %s', (name) => {
+    expect(isImageFilename(name)).toBe(true)
+  })
+  it.each(['a.pdf', 'a.xlsx', 'a.heic', 'noext'])('is false for %s', (name) => {
+    expect(isImageFilename(name)).toBe(false)
   })
 })
 
@@ -93,6 +126,23 @@ describe('describeUploadSummary', () => {
       }),
     ).toBe('PDF · 3 pages · 125 lines · 9,042 chars')
   })
+  it('formats an image as kind and pixel dimensions', () => {
+    expect(
+      describeUploadSummary({ kind: 'PNG image', width: 900, height: 420, frames: 1 }),
+    ).toBe('PNG image · 900 × 420')
+  })
+  it('groups thousands in image dimensions', () => {
+    expect(
+      describeUploadSummary({ kind: 'TIFF image', width: 4960, height: 7016, frames: 1 }),
+    ).toBe('TIFF image · 4,960 × 7,016')
+  })
+  // The frame count is a warning, not a summary detail — it must not be buried
+  // in the same muted line as the dimensions.
+  it('does not mention frames in the summary line', () => {
+    expect(
+      describeUploadSummary({ kind: 'TIFF image', width: 800, height: 600, frames: 4 }),
+    ).toBe('TIFF image · 800 × 600')
+  })
   it('formats non-paged documents without a zero-page label', () => {
     expect(
       describeUploadSummary({
@@ -106,25 +156,45 @@ describe('describeUploadSummary', () => {
   })
 })
 
-describe('scannedPdfWarning', () => {
+describe('attachmentWarning', () => {
   const warning = "No text layer — this looks like a scan and can't be read yet."
 
   it('warns only when a PDF has pages and zero text pages', () => {
     expect(
-      scannedPdfWarning({ kind: 'PDF', pages: 2, text_pages: 0, lines: 0, chars: 0 }),
+      attachmentWarning({ kind: 'PDF', pages: 2, text_pages: 0, lines: 0, chars: 0 }),
     ).toBe(warning)
   })
 
   it('does not warn for a partial scan', () => {
     expect(
-      scannedPdfWarning({ kind: 'PDF', pages: 2, text_pages: 1, lines: 10, chars: 80 }),
+      attachmentWarning({ kind: 'PDF', pages: 2, text_pages: 1, lines: 10, chars: 80 }),
     ).toBeNull()
   })
 
   it('does not warn for a zero-page text document', () => {
     expect(
-      scannedPdfWarning({ kind: 'Text file', pages: 0, text_pages: 0, lines: 1, chars: 3 }),
+      attachmentWarning({ kind: 'Text file', pages: 0, text_pages: 0, lines: 1, chars: 3 }),
     ).toBeNull()
+  })
+
+  // A multi-frame TIFF is a scanned multi-page document: only frame 1 is OCR'd,
+  // so the rest is silently lost unless the UI says so.
+  it('warns that only the first frame of a multi-frame image is read', () => {
+    expect(
+      attachmentWarning({ kind: 'TIFF image', width: 800, height: 600, frames: 3 }),
+    ).toBe(
+      'Only the first of 3 pages in this image will be read — send the pages as separate images, or as a PDF.',
+    )
+  })
+
+  it('does not warn for a single-frame image', () => {
+    expect(
+      attachmentWarning({ kind: 'PNG image', width: 900, height: 420, frames: 1 }),
+    ).toBeNull()
+  })
+
+  it('does not warn for a spreadsheet', () => {
+    expect(attachmentWarning({ kind: 'CSV', total_rows: 10 })).toBeNull()
   })
 })
 

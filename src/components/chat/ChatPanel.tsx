@@ -2,7 +2,7 @@ import { AlertTriangle, Building2, Globe2, Loader2, Wrench } from 'lucide-react'
 import type { AttachmentDescriptor, UIMessage } from '@/hooks/useSessions'
 import type { Department } from '@/lib/api'
 import { useAttachment } from '@/hooks/useAttachment'
-import { describeUploadSummary, scannedPdfWarning } from '@/lib/upload-validation'
+import { attachmentWarning, describeUploadSummary } from '@/lib/upload-validation'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
 
@@ -48,7 +48,8 @@ export function ChatPanel({
             id: attachment.file.id,
             filename: attachment.file.filename,
             summaryLine: describeUploadSummary(attachment.file.summary),
-            warning: scannedPdfWarning(attachment.file.summary) ?? undefined,
+            warning: attachmentWarning(attachment.file.summary) ?? undefined,
+            isImage: attachment.file.media_type.startsWith('image/'),
           }
         : undefined
     onSend(text, descriptor, activeDepartment ?? undefined)

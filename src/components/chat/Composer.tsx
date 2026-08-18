@@ -1,12 +1,25 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
-import { AlertTriangle, ArrowUp, FileText, Loader2, Paperclip, Square, Upload, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowUp,
+  Camera,
+  FileText,
+  Loader2,
+  Paperclip,
+  Square,
+  Upload,
+  X,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Attachment } from '@/hooks/useAttachment'
 import {
   UPLOAD_ACCEPT,
+  attachmentWarning,
   describeUploadSummary,
-  scannedPdfWarning,
+  isImageFilename,
 } from '@/lib/upload-validation'
+import { ImageLightbox } from './ImageLightbox'
+import { ImageThumb } from './ImageThumb'
 
 interface ComposerProps {
   onSend: (text: string) => void
@@ -17,6 +30,13 @@ interface ComposerProps {
   attachment: Attachment | null
   onPickFile: (file: File) => void
   onClearAttachment: () => void
+}
+
+/** Is the pending attachment an image? (Filename before upload, media type after.) */
+function attachmentIsImage(attachment: Attachment): boolean {
+  if (attachment.status === 'ready') return attachment.file.media_type.startsWith('image/')
+  if (attachment.status === 'uploading') return isImageFilename(attachment.filename)
+  return false
 }
 
 export function Composer({
@@ -31,11 +51,17 @@ export function Composer({
 }: ComposerProps) {
   const [text, setText] = useState('')
   const [isDraggingFile, setIsDraggingFile] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
   const dragDepth = useRef(0)
-  const scanWarning =
-    attachment?.status === 'ready' ? scannedPdfWarning(attachment.file.summary) : null
+  const warning =
+    attachment?.status === 'ready' ? attachmentWarning(attachment.file.summary) : null
+  const isImage = attachment ? attachmentIsImage(attachment) : false
+  const previewUrl = attachment && attachment.status !== 'error' ? attachment.previewUrl : null
+  const attachmentName =
+    attachment?.status === 'ready' ? attachment.file.filename : attachment?.filename
 
   useEffect(() => {
     const el = ref.current
@@ -78,6 +104,15 @@ export function Composer({
     if (file) onPickFile(file)
   }
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setPreviewOpen(false)
+      onPickFile(file)
+    }
+    e.target.value = '' // allow re-picking the same file
+  }
+
   return (
     <div className="bg-background px-6 pb-5 pt-3.5">
       <div
@@ -98,11 +133,16 @@ export function Composer({
           type="file"
           accept={UPLOAD_ACCEPT}
           className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (file) onPickFile(file)
-            e.target.value = '' // allow re-picking the same file
-          }}
+          onChange={handleInputChange}
+        />
+        {/* Separate input so phones offer the camera directly. */}
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={handleInputChange}
         />
 
         {attachment && (
@@ -112,32 +152,39 @@ export function Composer({
               attachment.status === 'error' && 'border-destructive/40 bg-destructive/10 text-destructive',
             )}
           >
-            {attachment.status === 'uploading' ? (
+            {attachment.status === 'uploading' && !previewUrl ? (
               <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+            ) : isImage ? (
+              <ImageThumb
+                src={previewUrl ?? undefined}
+                filename={attachmentName ?? 'image'}
+                onOpen={previewUrl ? () => setPreviewOpen(true) : undefined}
+              />
             ) : (
               <FileText className="size-4 shrink-0 text-primary" />
             )}
             <div className="min-w-0">
-              <div className="truncate font-medium">
-                {attachment.status === 'ready' ? attachment.file.filename : attachment.filename}
-              </div>
-              <div className={cn('text-xs text-muted-foreground', !scanWarning && 'truncate')}>
+              <div className="truncate font-medium">{attachmentName}</div>
+              <div className={cn('text-xs text-muted-foreground', !warning && 'truncate')}>
                 {attachment.status === 'uploading'
                   ? 'Uploading…'
                   : attachment.status === 'ready'
                     ? describeUploadSummary(attachment.file.summary)
                     : attachment.message}
               </div>
-              {scanWarning && (
+              {warning && (
                 <div className="mt-1 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
                   <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-                  <span>{scanWarning}</span>
+                  <span>{warning}</span>
                 </div>
               )}
             </div>
             <button
               type="button"
-              onClick={onClearAttachment}
+              onClick={() => {
+                setPreviewOpen(false)
+                onClearAttachment()
+              }}
               aria-label="Remove attachment"
               className="ml-1 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
             >
@@ -156,11 +203,22 @@ export function Composer({
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={disabled}
-            aria-label="Attach a document"
-            title="Attach a document or spreadsheet"
+            aria-label="Attach a document or image"
+            title="Attach a document, spreadsheet, or image"
             className="mb-0.5 grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Paperclip className="size-[18px]" />
+          </button>
+          {/* Camera capture is a phone/tablet affordance; desktops get the file picker. */}
+          <button
+            type="button"
+            onClick={() => cameraRef.current?.click()}
+            disabled={disabled}
+            aria-label="Take a photo"
+            title="Take a photo"
+            className="mb-0.5 grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 sm:hidden"
+          >
+            <Camera className="size-[18px]" />
           </button>
           <textarea
             ref={ref}
@@ -206,6 +264,14 @@ export function Composer({
             : 'Enter to send · Shift+Enter for a new line'}
         </p>
       </div>
+
+      {previewOpen && previewUrl && (
+        <ImageLightbox
+          src={previewUrl}
+          filename={attachmentName}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
     </div>
   )
 }

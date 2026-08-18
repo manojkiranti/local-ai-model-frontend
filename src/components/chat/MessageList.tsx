@@ -84,10 +84,24 @@ export function MessageList({ messages, onExample, canSend, onRetry }: MessageLi
     )
   }
 
+  // Only the newest attachment set is active server-side; earlier ones are
+  // marked superseded and the model uses the newest unless the user names an
+  // older file. Find the last bubble carrying one so the rest can say so.
+  const lastAttachmentId = messages.reduce<string | null>(
+    (found, m) => (m.attachment ? m.id : found),
+    null,
+  )
+
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-7 px-6 py-7">
       {messages.map((m) => (
-        <MessageBubble key={m.id} message={m} onRetry={onRetry} canRetry={canSend} />
+        <MessageBubble
+          key={m.id}
+          message={m}
+          onRetry={onRetry}
+          canRetry={canSend}
+          attachmentSuperseded={Boolean(m.attachment) && m.id !== lastAttachmentId}
+        />
       ))}
       <div ref={bottomRef} />
     </div>
