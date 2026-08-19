@@ -465,22 +465,45 @@ export async function fetchFile(id: string, signal?: AbortSignal): Promise<Respo
 }
 
 /**
+ * Whether `path` still points at the gateway once `rawFetch` concatenates it
+ * onto API_BASE.
+ *
+ * A leading-slash test is not enough. `//host/x` and `/\host/x` are
+ * protocol-relative: the URL parser resolves both off-origin, and under the
+ * documented empty-`VITE_API_BASE_URL` deployment (hard rule 4) API_BASE is
+ * `''`, so the concatenated string is handed to fetch as-is and would carry the
+ * Authorization header to that host. The leading slash is still required
+ * separately — a bare `v1/x` resolves same-origin but concatenates into
+ * `http://host:8000v1/x`.
+ */
+function staysOnGatewayOrigin(path: string): boolean {
+  if (!path.startsWith('/')) return false
+  const base = API_BASE || window.location.origin
+  try {
+    return new URL(path, base).origin === new URL(base, window.location.origin).origin
+  } catch {
+    return false
+  }
+}
+
+/**
  * Fetch the original bytes of a department document a citation points at
  * (`GET /v1/departments/{code}/documents/{id}/download`) WITH the bearer header
  * — a plain <a href> cannot send it and would 401. Caller turns the body into a
  * blob URL and revokes it.
  *
  * `downloadUrl` must be the server-derived `Source.download_url` verbatim: it is
- * computed server-side and may change, so it is never rebuilt here. It is
- * validated as a relative path so a rewritten value can never send the bearer
- * token to another origin. 403 = no grant for that department; 404 = unknown
- * document, another department's, not `ready`, or its bytes are missing.
+ * computed server-side and may change, so it is never rebuilt here — it is only
+ * parsed to confirm it stays on the gateway, then passed through untouched, so
+ * a rewritten value can never send the bearer token to another origin. 403 = no
+ * grant for that department; 404 = unknown document, another department's, not
+ * `ready`, or its bytes are missing.
  */
 export async function fetchDepartmentDocument(
   downloadUrl: string,
   signal?: AbortSignal,
 ): Promise<Response> {
-  if (!downloadUrl.startsWith('/')) {
+  if (!staysOnGatewayOrigin(downloadUrl)) {
     throw new Error('This citation has no usable download link.')
   }
   const res = await rawFetch(downloadUrl, { method: 'GET' }, signal)

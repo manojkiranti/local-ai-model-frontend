@@ -376,6 +376,28 @@ describe('cited document download', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  // A leading slash is not proof of same-origin: these are protocol-relative,
+  // and with an empty VITE_API_BASE_URL they would be fetched as-is — sending
+  // the bearer token to that host.
+  it.each(['//evil.example/steal', '/\\evil.example/steal', '/\t//evil.example/steal'])(
+    'refuses the protocol-relative link %j',
+    async (link) => {
+      const fetchMock = vi.spyOn(globalThis, 'fetch')
+      await expect(fetchDepartmentDocument(link)).rejects.toThrow(/no usable download link/)
+      expect(fetchMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it('still accepts a path with a query string and encoded segments', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('bytes', { status: 200 }))
+    await fetchDepartmentDocument('/v1/departments/hr%20ops/documents/doc-1/download?v=2')
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      'http://localhost:8000/v1/departments/hr%20ops/documents/doc-1/download?v=2',
+    )
+  })
+
   it('surfaces the gateway detail for 403 and 404', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       jsonResponse({ detail: 'Unknown document' }, 404),
