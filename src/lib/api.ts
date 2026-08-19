@@ -66,6 +66,45 @@ export interface ChatTurnRequest {
   department?: string
 }
 
+/**
+ * One department document an answer was grounded in — document-level, not
+ * passage-level, so a reader gets one link per file with its pages listed.
+ *
+ * Read `sources` as three distinct states: `null` = no corpus was searched (a
+ * general chat, always), `[]` = a search ran and surfaced nothing, a non-empty
+ * list = these documents. The NRB-only fields are ABSENT (not null) on an
+ * ordinary upload, which is how "not an NRB document" is told apart from "NRB,
+ * route unknown".
+ */
+export interface Source {
+  document_id: string
+  title: string
+  department_code: string
+  file_name?: string | null
+  /** pdf | docx | xlsx | csv | text */
+  file_type?: string | null
+  /** Ascending; empty for formats with no pagination (csv/xlsx/typed text). */
+  pages: number[]
+  /** True when the answer's [N] markers named this document. */
+  cited: boolean
+  /**
+   * Server-derived RELATIVE path. Fetch it with the bearer header via
+   * `fetchDepartmentDocument` — never rebuild it, never persist it.
+   */
+  download_url?: string | null
+  /** "nrb" for a catalog document, else the document's own source. */
+  origin?: string | null
+  // NRB-only below: the document's public page, and how its text was extracted.
+  source_url?: string | null
+  published_at?: string | null
+  /** Union of the per-page extraction routes: native | legacy_conversion | ocr. */
+  routes?: string[] | null
+  /** True when a page was OCR'd or converted from a legacy font. */
+  machine_recovered?: boolean | null
+  /** The exact caveat the model was shown. MUST be rendered when recovered. */
+  verify_note?: string | null
+}
+
 /** One row in a persisted conversation thread (GET /v1/sessions/{id}). */
 export interface ThreadMessage {
   id: string
@@ -74,6 +113,11 @@ export interface ThreadMessage {
   content: string
   /** Non-null on assistant rows whose turn called tools → renders the trace. */
   trace: TraceEntry[] | null
+  /**
+   * Citations replayed for an assistant row (`download_url` recomputed on read),
+   * so a reloaded thread renders exactly like the live turn did.
+   */
+  sources: Source[] | null
   model: string | null
   created_at: string
 }
@@ -157,6 +201,12 @@ export interface DoneEvent {
   final_answer: string
   error_message: string | null
   trace: TraceEntry[]
+  /**
+   * Citations for the turn — resolved against the FINAL answer's [N] markers,
+   * so they arrive only here and never on an earlier event. NOT suppressed by
+   * EXPOSE_TRACE: the trace is diagnostics, the citations are the answer.
+   */
+  sources: Source[] | null
 }
 
 export type ChatEvent = TokenEvent | ToolCallEvent | ToolResultEvent | DoneEvent
@@ -410,6 +460,30 @@ export async function getMcpStatus(signal?: AbortSignal): Promise<McpStatus> {
  */
 export async function fetchFile(id: string, signal?: AbortSignal): Promise<Response> {
   const res = await rawFetch(`/v1/files/${encodeURIComponent(id)}`, { method: 'GET' }, signal)
+  if (!res.ok) throw await errorFromResponse(res)
+  return res
+}
+
+/**
+ * Fetch the original bytes of a department document a citation points at
+ * (`GET /v1/departments/{code}/documents/{id}/download`) WITH the bearer header
+ * — a plain <a href> cannot send it and would 401. Caller turns the body into a
+ * blob URL and revokes it.
+ *
+ * `downloadUrl` must be the server-derived `Source.download_url` verbatim: it is
+ * computed server-side and may change, so it is never rebuilt here. It is
+ * validated as a relative path so a rewritten value can never send the bearer
+ * token to another origin. 403 = no grant for that department; 404 = unknown
+ * document, another department's, not `ready`, or its bytes are missing.
+ */
+export async function fetchDepartmentDocument(
+  downloadUrl: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  if (!downloadUrl.startsWith('/')) {
+    throw new Error('This citation has no usable download link.')
+  }
+  const res = await rawFetch(downloadUrl, { method: 'GET' }, signal)
   if (!res.ok) throw await errorFromResponse(res)
   return res
 }

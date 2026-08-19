@@ -157,7 +157,17 @@ explicitly includes backend work.
     And never claim runner health: the gateway does not serialise `heartbeat_at`,
     so a stalled `queued` run is indistinguishable from one about to be claimed.
     Read "is something running" from `active_run`, never from a status string.
-15. **Tests are required for code changes.** Every bug fix, feature, behavior
+15. **Citations are read from `sources`, never from the answer text.** A chat
+    answer's `sources` has three meanings: `null` (no corpus searched — every
+    general-chat turn, and every turn before the stream's `done`), `[]`
+    (searched, nothing returned), and a list. Render nothing for `null`, not an
+    empty heading. `download_url` is server-derived: pass it to
+    `fetchDepartmentDocument` verbatim, never rebuild it and never persist it.
+    A source with `machine_recovered` MUST render its `verify_note` as visible
+    text — that document's text came from OCR or a legacy-font conversion no
+    human has verified — and `cited: false` must not be presented as the source
+    of a specific sentence.
+16. **Tests are required for code changes.** Every bug fix, feature, behavior
     change, or API-contract change must add or update automated tests covering
     the affected behavior. Do not consider the task complete until the relevant
     tests pass. If automated testing is genuinely impractical, explicitly
@@ -197,6 +207,10 @@ explicitly includes backend work.
   `src/hooks/useSessions.test.ts`. Images add `src/lib/ocr-provenance.ts`,
   `src/hooks/useAuthedImageUrl.ts`, and the chat components `ImageThumb`,
   `ImageLightbox`, and `OcrNotice`.
+- **Chat source citations:** read `src/lib/sources.ts`,
+  `src/components/chat/SourcesPanel.tsx`, `src/hooks/useDocumentDownload.ts`, and
+  hard rule 15. The gateway resolves which documents an answer used
+  (`app/rag/sources.py`); this UI formats and links them and derives nothing.
 - **NRB operations:** read `src/hooks/useNrbOps.ts`, `src/lib/nrb-format.ts`, and
   `src/components/admin/NrbOpsPage.test.tsx`, then hard rule 14. Pipeline
   lifecycle logic belongs to the gateway (`app/nrb/pipeline.py`); this screen

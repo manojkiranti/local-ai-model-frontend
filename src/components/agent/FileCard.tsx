@@ -8,6 +8,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { describeError, fetchFile } from '@/lib/api'
+import { filenameFromContentDisposition } from '@/lib/file-format'
 import type { FileRef } from '@/lib/agent-api'
 
 interface Loaded {
@@ -16,10 +17,6 @@ interface Loaded {
   /** Populated only for text/html (used as the sandboxed iframe srcdoc). */
   html: string | null
   filename: string
-}
-
-function filenameFromDisposition(disposition: string): string | undefined {
-  return disposition.match(/filename\*?=(?:UTF-8''|")?([^;"']+)/i)?.[1]
 }
 
 const isImage = (ct: string) => ct.startsWith('image/')
@@ -49,7 +46,7 @@ export function FileCard({ file }: { file: FileRef }) {
       try {
         const res = await fetchFile(file.id)
         const contentType = res.headers.get('Content-Type') ?? ''
-        const named = filenameFromDisposition(res.headers.get('Content-Disposition') ?? '')
+        const named = filenameFromContentDisposition(res.headers.get('Content-Disposition'))
         const blob = await res.blob()
         const html = isHtml(contentType) ? await blob.text() : null
         const blobUrl = URL.createObjectURL(blob)
@@ -63,7 +60,7 @@ export function FileCard({ file }: { file: FileRef }) {
           blobUrl,
           html,
           filename:
-            (named && decodeURIComponent(named)) ||
+            named ||
             file.filename ||
             `file-${file.id.slice(0, 8)}`,
         })

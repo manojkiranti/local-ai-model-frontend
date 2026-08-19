@@ -32,9 +32,9 @@ Authoritative live spec: `http://localhost:8000/openapi.json` (Swagger at
 | POST | `/auth/register` | — | `{email,password}` → 201 user. First user becomes **admin**; 409 if email exists; password ≥ 8. Returns the user, **not** a token. |
 | POST | `/auth/login` | — | `{email,password}` → `{access_token, token_type, expires_in}`. 401 on bad credentials. |
 | GET  | `/users/me` | bearer | Current user `{id, email, role, …}`. Roles: `admin` \| `member`. |
-| POST | `/v1/chat` | bearer | **The one endpoint** — stateful, tool-capable, streaming. `{session_id?, message, department?, model?, stream?, options?, file_ids?}`. Send `department` only when creating a department-bound session; continuing turns send the `session_id` and the server remembers the binding. `stream:true` → **NDJSON of typed events** (`token` / `tool_call` / `tool_result` / `done`, **not** SSE) with the new session id in the **`X-Session-Id` response header**. |
+| POST | `/v1/chat` | bearer | **The one endpoint** — stateful, tool-capable, streaming. `{session_id?, message, department?, model?, stream?, options?, file_ids?}`. Send `department` only when creating a department-bound session; continuing turns send the `session_id` and the server remembers the binding. `stream:true` → **NDJSON of typed events** (`token` / `tool_call` / `tool_result` / `done`, **not** SSE) with the new session id in the **`X-Session-Id` response header**. Both shapes carry **`sources`** — the department documents the answer was grounded in — and on a stream it arrives **only on `done`** (citations resolve against the final answer's `[N]` markers). `null` means no corpus was searched; a general chat is always `null`. Not suppressed by `EXPOSE_TRACE`. |
 | GET  | `/v1/sessions` | bearer | Sidebar list `[{id, title, created_at, updated_at, message_count}]`, newest-updated first. |
-| GET  | `/v1/sessions/{id}` | bearer | Full thread `{…, messages:[{id, seq, role, content, trace, model, created_at}]}`. Assistant rows whose turn called tools carry non-null `trace`. 404 = gone. |
+| GET  | `/v1/sessions/{id}` | bearer | Full thread `{…, messages:[{id, seq, role, content, trace, sources, model, created_at}]}`. Assistant rows whose turn called tools carry non-null `trace`; rows grounded in the corpus replay `sources` (its `download_url` is recomputed on read). 404 = gone. |
 | DELETE | `/v1/sessions/{id}` | bearer | Delete a conversation → 204. |
 | GET  | `/v1/tools` | bearer | Tools the model can use. |
 | POST | `/v1/files` | bearer | Attach a file to a chat turn — `multipart/form-data`, field **`file`** → 201 `{id, filename, media_type, size, source, summary}`. Accepts `.xlsx .csv .pdf .docx .txt .md .json` and images `.png .jpg .jpeg .webp .tif .tiff .bmp`. `summary` is per kind: spreadsheet (`total_rows`, `sheets`), document (`pages`, `text_pages`, `lines`, `chars`), or image (`width`, `height`, `frames`). Errors are `{"detail": …}`: 400 bad extension / not really an image / decoded-pixel bomb / empty, 413 over `upload_max_bytes` (10 MB by default, deployment-configurable). |
@@ -45,6 +45,7 @@ Authoritative live spec: `http://localhost:8000/openapi.json` (Swagger at
 | POST/PATCH | `/v1/departments[/{code}]` | bearer + admin | Create, rename, enable, and disable departments. |
 | GET/POST/DELETE | `/v1/departments/{code}/members[...]` | bearer + admin | List, grant, and revoke department access. |
 | GET/POST/DELETE | `/v1/departments/{code}/documents[...]` | bearer (writes admin-only) | List corpus documents; upload files, add text, and archive documents. Uploads return 202. |
+| GET | `/v1/departments/{code}/documents/{document_id}/download` | bearer | The original bytes of a **cited** document — what a chat citation links to. Fetch **with** the bearer header and build a blob URL (a plain `<a href>` can't send it). 403 = no grant for the department; 404 = unknown document, another department's, not `ready` (members), or its bytes are missing. |
 | GET | `/v1/ingest-jobs/{job_id}` | bearer + admin | Poll asynchronous document ingestion progress. |
 | GET | `/v1/nrb/status` | bearer + admin | Operational state `{active_run, latest_run, catalog, files, rag}`. **Not a pure read** — the handler settles finished runs and commits, so polling it is what advances an `awaiting_jobs` run. `catalog`/`files` are flat `{string:int}`; `rag` mixes scalars with nested `documents`/`jobs` maps. |
 | POST | `/v1/nrb/runs` | bearer + admin | Trigger an update. **202 and 409 share one envelope** `{started, run, detail}` — a 409 carries the run already in progress. A bounded scope is required (422 otherwise); `all_files` is deliberately unavailable over HTTP. |
@@ -115,6 +116,24 @@ unavailable"`, otherwise it surfaces `detail`.
   render as chat tabs. Changing scope starts a fresh conversation and sends the
   selected department code only on its first turn. Existing sessions continue
   without resending a scope; a 409 explains that a new department chat is needed.
+- **Source citations** — a department answer renders a **Sources** area under
+  it: one entry per document (best first) with its pages (`pp. 4–6, 12`), type,
+  and a **Download** that fetches the authenticated
+  `/v1/departments/{code}/documents/{id}/download` **with** the bearer header
+  into a blob URL. `download_url` is used exactly as the response gave it and is
+  never rebuilt or persisted. The three states are distinct: `sources: null`
+  (no corpus searched — every general-chat turn, and every turn before `done`)
+  renders **nothing**; `[]` says the corpus was searched and returned nothing; a
+  list renders. Documents the answer's `[N]` markers named appear as sources;
+  the rest are grouped as **Related documents** with the reason ("did not mark
+  which part came from which document"), because the model left the mapping
+  ambiguous. A **`machine_recovered`** document shows the gateway's own
+  `verify_note` as a **visible amber warning** — its text came from OCR or a
+  legacy-Nepali-font conversion that no human has verified, so a figure, date or
+  name from it may be wrong — plus how each page was extracted (`OCR`, `native
+  text layer`, `legacy Nepali font conversion`) and, for NRB documents, a link
+  to the official page on `nrb.org.np` to check against. A reloaded thread
+  renders identically, from the `sources` replayed by `GET /v1/sessions/{id}`.
 - **RAG Admin** — admins get a `/admin` workspace for creating/disabling
   departments, uploading PDF/DOCX/XLSX/CSV or typed knowledge, watching the 202
   ingestion job progress every two seconds, archiving documents, and granting or
@@ -239,6 +258,40 @@ src/
    screen, and review monthly: check whether any counter key rendered as an
    unlabelled fallback (a stage added one), and whether the bounds offered still
    match `RunTriggerIn`.
+
+## Evaluation & Improvement — chat source citations
+
+1. **Success metric.** Share of department answers a reader can verify against a
+   named document **without asking anyone where it came from** — measured as:
+   answers whose Sources area was used (a document downloaded, or an NRB official
+   page opened) ÷ department answers that returned a non-null `sources`. The
+   nearest proxy while volume is low is gateway access-log hits on
+   `/v1/departments/{code}/documents/{id}/download` versus department chat turns.
+   The safety half of the metric is stricter: **zero** answers built on
+   `machine_recovered` text that render without their `verify_note`.
+2. **Eval.** The labelled set is `src/components/chat/SourcesPanel.test.tsx`
+   (19 cases) plus `src/lib/sources.test.ts` (23) and the citation cases in
+   `src/hooks/useSessions.test.ts` (7) and `src/lib/api.test.ts` (3). It fixes
+   the payload shapes the gateway actually returns and scores the rendered output
+   against them, covering the failure modes that make citations misleading rather
+   than merely ugly: `null` rendered as an empty Sources panel, `[]` conflated
+   with `null`, a `machine_recovered` document shown without its caveat, an
+   absent NRB field read as "recovered", `cited: false` presented as a specific
+   claim's source, a citation link followed by an `<a href>` (401) instead of an
+   authenticated fetch, and a rebuilt rather than server-given `download_url`.
+   **Current pass rate: 271/271** (`npm run test`, whole suite). Not yet
+   exercised against a live gateway with a real NRB corpus.
+3. **Feedback capture.** The screen captures none itself. The durable signals are
+   the gateway's own: which documents were resolved for a turn (persisted on the
+   assistant row's `sources`) and which of them a user actually downloaded (the
+   download route's access log). A reader who finds a cited figure wrong is
+   reporting an extraction problem, which belongs in the gateway's NRB route
+   review, not here; corrections to *this* layer arrive as cases added to the
+   eval set above — add the case before changing behaviour.
+4. **Review loop.** Re-run the eval on every change to `sources` in the gateway
+   contract or to this panel, and review monthly: check that every field the
+   gateway sends is either rendered or deliberately dropped, and that no route
+   value rendered as an unlabelled fallback (a new extraction route was added).
 
 See `docs/superpowers/specs/2026-07-30-auth-gateway-wiring-design.md` and
 `docs/superpowers/plans/2026-07-30-auth-gateway-wiring.md` for the auth design

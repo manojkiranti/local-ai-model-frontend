@@ -54,3 +54,23 @@ export function relativeTime(iso: string, nowMs: number = Date.now()): string {
   if (days < 365) return `${months}mo ago`
   return `${Math.round(days / 365)}y ago`
 }
+
+/**
+ * The filename a protected download announced in its `Content-Disposition`, or
+ * undefined. Percent-escapes are decoded (the gateway sends `filename*=UTF-8''…`
+ * for a non-ASCII name); a malformed escape falls back to the raw match rather
+ * than throwing on a header we do not control.
+ */
+export function filenameFromContentDisposition(
+  disposition: string | null | undefined,
+): string | undefined {
+  const match = (disposition ?? '').match(/filename\*?=(?:UTF-8''|")?([^;"']+)/i)
+  if (!match) return undefined
+  const raw = match[1].trim()
+  if (!raw) return undefined
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}

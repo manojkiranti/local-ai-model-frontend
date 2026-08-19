@@ -11,6 +11,7 @@ import type { UIMessage } from '@/hooks/useSessions'
 import { ImageLightbox } from './ImageLightbox'
 import { ImageThumb } from './ImageThumb'
 import { OcrNotice } from './OcrNotice'
+import { SourcesPanel } from './SourcesPanel'
 
 interface MessageBubbleProps {
   message: UIMessage
@@ -136,6 +137,13 @@ export function MessageBubble({
             <span className="thinking-shimmer font-medium">Working…</span>
           </div>
         ) : null}
+
+        {/*
+          Citations sit with the answer, above the diagnostics: they are part of
+          what was said, not part of how it was produced. A failed turn shows
+          none — there is no answer for them to support.
+        */}
+        {message.status !== 'error' && <SourcesPanel sources={message.sources} />}
 
         {message.trace && message.trace.length > 0 && <TracePanel trace={message.trace} />}
 

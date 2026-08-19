@@ -3,6 +3,7 @@ import {
   cosineSimilarity,
   createDepartmentTextDocument,
   describeError,
+  fetchDepartmentDocument,
   getMe,
   getIngestJob,
   listDepartmentDocuments,
@@ -337,5 +338,57 @@ describe('department RAG endpoints', () => {
     expect(String(fetchMock.mock.calls[1][0])).toBe(
       'http://localhost:8000/v1/departments/finance/documents',
     )
+  })
+})
+
+// A citation's link is behind JWT, so it can only be fetched with the bearer
+// header — never followed by an <a href>, which sends none and 401s.
+describe('cited document download', () => {
+  beforeEach(() => {
+    clearToken()
+    registerUnauthorizedHandler(() => {})
+    setToken('tok.cite')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    clearToken()
+  })
+
+  it('fetches the server-derived path verbatim, with the bearer header', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('bytes', { status: 200 }))
+    // Exactly the `download_url` a Source carried — not rebuilt from its parts.
+    await fetchDepartmentDocument('/v1/departments/hr/documents/doc-1/download')
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe(
+      'http://localhost:8000/v1/departments/hr/documents/doc-1/download',
+    )
+    expect(new Headers(init!.headers).get('Authorization')).toBe('Bearer tok.cite')
+  })
+
+  it('refuses a link that is not a relative gateway path', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    await expect(fetchDepartmentDocument('https://evil.example/steal')).rejects.toThrow(
+      /no usable download link/,
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the gateway detail for 403 and 404', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'Unknown document' }, 404),
+    )
+    await expect(
+      fetchDepartmentDocument('/v1/departments/hr/documents/doc-1/download'),
+    ).rejects.toMatchObject({ status: 404, message: 'Unknown document' })
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'No access to department hr' }, 403),
+    )
+    await expect(
+      fetchDepartmentDocument('/v1/departments/hr/documents/doc-1/download'),
+    ).rejects.toMatchObject({ status: 403, message: 'No access to department hr' })
   })
 })

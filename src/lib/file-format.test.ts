@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { fileKind, formatBytes, relativeTime } from './file-format'
+import {
+  fileKind,
+  filenameFromContentDisposition,
+  formatBytes,
+  relativeTime,
+} from './file-format'
 
 describe('fileKind', () => {
   it('maps the gateway media types to short labels', () => {
@@ -52,5 +57,30 @@ describe('relativeTime', () => {
   it('treats future/clock-skew timestamps as "just now" and bad input as empty', () => {
     expect(relativeTime('2026-08-05T12:00:30Z', now)).toBe('just now')
     expect(relativeTime('not-a-date', now)).toBe('')
+  })
+})
+
+describe('filenameFromContentDisposition', () => {
+  it('reads a quoted filename', () => {
+    expect(filenameFromContentDisposition('attachment; filename="Monetary Policy.pdf"')).toBe(
+      'Monetary Policy.pdf',
+    )
+  })
+
+  it('decodes the RFC 5987 form the gateway uses for non-ASCII names', () => {
+    expect(
+      filenameFromContentDisposition("attachment; filename*=UTF-8''%E0%A4%A8%E0%A5%87.pdf"),
+    ).toBe('\u0928\u0947.pdf')
+  })
+
+  it('keeps the raw match when the escapes are malformed', () => {
+    expect(filenameFromContentDisposition('attachment; filename="100%.pdf"')).toBe(
+      '100%.pdf',
+    )
+  })
+
+  it('is undefined when the header is absent or names nothing', () => {
+    expect(filenameFromContentDisposition(null)).toBeUndefined()
+    expect(filenameFromContentDisposition('attachment')).toBeUndefined()
   })
 })

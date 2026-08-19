@@ -7,6 +7,7 @@ import {
   openChatStream,
   GatewayError,
   type SessionSummary,
+  type Source,
   type ThreadMessage,
   type ToolCallStatus,
   type TraceEntry,
@@ -71,6 +72,14 @@ export interface UIMessage {
   attachment?: MessageAttachment
   /** Present when this turn read an image by OCR → renders the provenance note. */
   ocr?: OcrProvenance
+  /**
+   * Department documents this answer was grounded in. `null`/absent means no
+   * corpus was searched — a general chat, or a turn that has not reached `done`
+   * yet, since citations resolve against the final answer's [N] markers and so
+   * arrive only on the terminal event. Never persisted: `download_url` inside is
+   * server-derived and taken fresh from every response.
+   */
+  sources?: Source[] | null
 }
 
 /** Mark the most recent still-running call with this name as finished. */
@@ -98,6 +107,7 @@ function threadToUI(m: ThreadMessage, index: number, thread: ThreadMessage[]): U
     trace: m.trace,
     files: extractFileRefs(m.content, m.trace),
     model: m.model,
+    sources: m.sources ?? null,
     ...(m.role === 'assistant' ? { ocr: ocrFromTrace(m.trace) ?? undefined } : {}),
     ...(m.role === 'assistant' && index > 0 && thread[index - 1]?.role === 'user'
       ? { retryText: thread[index - 1].content }
@@ -282,6 +292,7 @@ export function useSessions() {
                 retryAttachmentName: attachmentName,
                 liveTools: undefined,
                 trace,
+                sources: null,
               }))
             } else {
               patch(assistantId, (m) => {
@@ -297,6 +308,9 @@ export function useSessions() {
                   files: extractFileRefs(finalContent, trace),
                   liveTools: undefined,
                   ocr: mergeOcr(m.ocr, ocrFromTrace(trace)) ?? undefined,
+                  // Citations land only here; `null` (or an older gateway's
+                  // absent field) means no corpus was searched.
+                  sources: ev.sources ?? null,
                 }
               })
             }
@@ -404,6 +418,7 @@ export function useSessions() {
             files: undefined,
             liveTools: undefined,
             ocr: undefined,
+            sources: null,
             retryFileIds: undefined,
             retryAttachmentName: undefined,
           }

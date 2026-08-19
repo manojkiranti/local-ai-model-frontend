@@ -12,14 +12,15 @@ vi.mock('@/lib/api', async (importOriginal) => {
   }
 })
 
-import { GatewayError, openChatStream } from '@/lib/api'
+import { GatewayError, getSession, openChatStream } from '@/lib/api'
 import { useSessions } from '@/hooks/useSessions'
 
 const mockOpen = vi.mocked(openChatStream)
+const mockGetSession = vi.mocked(getSession)
 
 type OpenResult = Awaited<ReturnType<typeof openChatStream>>
 
-function doneStream(opts: { error?: boolean } = {}): OpenResult {
+function doneStream(opts: { error?: boolean; sources?: unknown } = {}): OpenResult {
   return {
     sessionId: 'sess-1',
     events: (async function* () {
@@ -32,6 +33,8 @@ function doneStream(opts: { error?: boolean } = {}): OpenResult {
         final_answer: 'hi',
         error_message: opts.error ? 'boom' : null,
         trace: [],
+        // null = this turn searched no corpus (every general-chat turn).
+        sources: opts.sources ?? null,
       }
     })(),
   } as OpenResult
@@ -398,5 +401,185 @@ describe('useSessions OCR provenance', () => {
     })
     await waitFor(() => expect(result.current.sending).toBe(false))
     expect(result.current.messages.find((m) => m.id === assistant.id)?.ocr).toBeUndefined()
+  })
+})
+
+
+// Citations are resolved against the FINAL answer's [N] markers, so they exist
+// only on the terminal `done` event — and `null` (no corpus searched) must stay
+// distinguishable from `[]` (searched, nothing surfaced).
+describe('useSessions source citations', () => {
+  const NRB_SOURCE = {
+    document_id: 'doc-1',
+    title: 'Monetary Policy 2081/82',
+    department_code: 'finance',
+    file_name: 'monetary-policy.pdf',
+    file_type: 'pdf',
+    pages: [4, 5],
+    cited: true,
+    download_url: '/v1/departments/finance/documents/doc-1/download',
+    origin: 'nrb',
+    source_url: 'https://www.nrb.org.np/monetary-policy',
+    published_at: '2024-07-12',
+    routes: ['ocr'],
+    machine_recovered: true,
+    verify_note: 'machine-recovered — VERIFY figures, dates and names against the source',
+  }
+
+  beforeEach(() => {
+    mockOpen.mockReset()
+    mockGetSession.mockReset()
+  })
+
+  it('carries the citations from the terminal done event', async () => {
+    mockOpen.mockResolvedValue(doneStream({ sources: [NRB_SOURCE] }))
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('what is the CRR?', undefined, 'finance')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(result.current.messages.find((m) => m.role === 'assistant')?.sources).toEqual([
+      NRB_SOURCE,
+    ])
+  })
+
+  it('records null for a turn that searched no corpus', async () => {
+    mockOpen.mockResolvedValue(doneStream())
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('hello')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(result.current.messages.find((m) => m.role === 'assistant')?.sources).toBeNull()
+  })
+
+  // A search that surfaced nothing is NOT the same as no search: the UI says so.
+  it('keeps an empty citation list distinct from null', async () => {
+    mockOpen.mockResolvedValue(doneStream({ sources: [] }))
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('anything on leave?', undefined, 'hr')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(result.current.messages.find((m) => m.role === 'assistant')?.sources).toEqual([])
+  })
+
+  it('has no citations while the answer is still streaming', async () => {
+    let finish!: () => void
+    const continueStream = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    mockOpen.mockResolvedValue({
+      sessionId: 'sess-1',
+      events: (async function* () {
+        yield { type: 'token', content: 'The CRR is' }
+        await continueStream
+        yield {
+          type: 'done',
+          session_id: 'sess-1',
+          stop_reason: 'completed',
+          iteration_count: 1,
+          final_answer: 'The CRR is 4% [1]',
+          error_message: null,
+          trace: [],
+          sources: [NRB_SOURCE],
+        }
+      })(),
+    } as OpenResult)
+
+    const { result } = renderHook(() => useSessions())
+    act(() => {
+      result.current.send('what is the CRR?', undefined, 'finance')
+    })
+    await waitFor(() => {
+      const assistant = result.current.messages.find((m) => m.role === 'assistant')
+      expect(assistant?.content).toBe('The CRR is')
+    })
+    expect(
+      result.current.messages.find((m) => m.role === 'assistant')?.sources ?? null,
+    ).toBeNull()
+    finish()
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(result.current.messages.find((m) => m.role === 'assistant')?.sources).toEqual([
+      NRB_SOURCE,
+    ])
+  })
+
+  it('shows no citations on a failed turn', async () => {
+    mockOpen.mockResolvedValue(doneStream({ error: true, sources: [NRB_SOURCE] }))
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('q', undefined, 'finance')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    const assistant = result.current.messages.find((m) => m.role === 'assistant')
+    expect(assistant?.status).toBe('error')
+    expect(assistant?.sources).toBeNull()
+  })
+
+  // A reloaded thread must render identically to the live turn.
+  it('replays citations from persisted history', async () => {
+    // Resolved deliberately after the selection has rendered, as a real request
+    // is: the thread is only adopted while it is still the active session.
+    let deliver!: (detail: Awaited<ReturnType<typeof getSession>>) => void
+    mockGetSession.mockReturnValue(
+      new Promise((resolve) => {
+        deliver = resolve
+      }),
+    )
+    const thread = {
+      id: 'sess-9',
+      title: 'CRR',
+      created_at: '2026-08-19T00:00:00Z',
+      updated_at: '2026-08-19T00:00:00Z',
+      messages: [
+        {
+          id: 'm1',
+          seq: 1,
+          role: 'user',
+          content: 'what is the CRR?',
+          trace: null,
+          sources: null,
+          model: null,
+          created_at: '2026-08-19T00:00:00Z',
+        },
+        {
+          id: 'm2',
+          seq: 2,
+          role: 'assistant',
+          content: 'The CRR is 4% [1]',
+          trace: null,
+          sources: [NRB_SOURCE],
+          model: 'qwen3',
+          created_at: '2026-08-19T00:00:01Z',
+        },
+      ],
+    }
+    const { result } = renderHook(() => useSessions())
+    act(() => {
+      void result.current.selectSession('sess-9')
+    })
+    await act(async () => {
+      deliver(thread as Awaited<ReturnType<typeof getSession>>)
+    })
+    await waitFor(() => expect(result.current.messages.length).toBe(2))
+    expect(result.current.messages[1].sources).toEqual([NRB_SOURCE])
+    expect(result.current.messages[0].sources).toBeNull()
+  })
+
+  it('drops the citations when the turn is retried', async () => {
+    mockOpen.mockResolvedValue(doneStream({ sources: [NRB_SOURCE] }))
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('q', undefined, 'finance')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    const assistant = result.current.messages.find((m) => m.role === 'assistant')!
+    mockOpen.mockResolvedValue(doneStream())
+    await act(async () => {
+      result.current.retry(assistant.id, 'q')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(result.current.messages.find((m) => m.id === assistant.id)?.sources).toBeNull()
   })
 })
