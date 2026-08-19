@@ -113,15 +113,27 @@ unavailable"`, otherwise it surfaces `detail`.
 - **Failed turns** (e.g. 502): the user's message is already saved server-side,
   so the reply bubble shows the error with a **Retry** affordance.
 - **Department-scoped RAG** — General plus the current user's active departments
-  render as chat tabs. Changing scope starts a fresh conversation and sends the
+  render as chips in the chat header, so the usual handful of scopes stay one
+  click away. Past five departments the tail collapses into a **+N more** control
+  holding a searchable list that filters on department name *and* code (codes are
+  shown on every row, so same-named departments stay distinguishable). Chips are
+  filled by priority — active scope, then the last three used, then alphabetical —
+  but displayed alphabetically, and the **active scope is always chipped** so it
+  can never be hidden behind the overflow. The list is keyboard-operable (`↑`/`↓`,
+  `Enter`, `Esc`). Changing scope starts a fresh conversation and sends the
   selected department code only on its first turn. Existing sessions continue
   without resending a scope; a 409 explains that a new department chat is needed.
 - **Source citations** — a department answer renders a **Sources** area under
   it: one entry per document (best first) with its pages (`pp. 4–6, 12`), type,
   and a **Download** that fetches the authenticated
   `/v1/departments/{code}/documents/{id}/download` **with** the bearer header
-  into a blob URL. `download_url` is used exactly as the response gave it and is
-  never rebuilt or persisted. The three states are distinct: `sources: null`
+  into a blob URL. A browser-renderable document (PDF, text, CSV) additionally
+  gets a **View** that opens that same authed blob in a new tab; docx/xlsx get
+  download only, since a browser cannot render them. View is gated on the
+  response **Content-Type** — only `application/pdf` and `text/*` (never
+  `text/html`) open in-tab, anything else falls back to a save — so a blob page
+  can never run script in this origin. `download_url` is used exactly as the
+  response gave it and is never rebuilt or persisted. The three states are distinct: `sources: null`
   (no corpus searched — every general-chat turn, and every turn before `done`)
   renders **nothing**; `[]` says the corpus was searched and returned nothing; a
   list renders. Documents the answer's `[N]` markers named appear as sources;
@@ -270,7 +282,7 @@ src/
    The safety half of the metric is stricter: **zero** answers built on
    `machine_recovered` text that render without their `verify_note`.
 2. **Eval.** The labelled set is `src/components/chat/SourcesPanel.test.tsx`
-   (19 cases) plus `src/lib/sources.test.ts` (23) and the citation cases in
+   (23 cases) plus `src/lib/sources.test.ts` (25) and the citation cases in
    `src/hooks/useSessions.test.ts` (7) and `src/lib/api.test.ts` (3). It fixes
    the payload shapes the gateway actually returns and scores the rendered output
    against them, covering the failure modes that make citations misleading rather
@@ -279,7 +291,7 @@ src/
    absent NRB field read as "recovered", `cited: false` presented as a specific
    claim's source, a citation link followed by an `<a href>` (401) instead of an
    authenticated fetch, and a rebuilt rather than server-given `download_url`.
-   **Current pass rate: 271/271** (`npm run test`, whole suite). Not yet
+   **Current pass rate: 281/281** (`npm run test`, whole suite). Not yet
    exercised against a live gateway with a real NRB corpus.
 3. **Feedback capture.** The screen captures none itself. The durable signals are
    the gateway's own: which documents were resolved for a turn (persisted on the

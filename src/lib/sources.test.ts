@@ -4,6 +4,7 @@ import {
   downloadFilename,
   externalLinkHost,
   fileTypeLabel,
+  isBrowserViewable,
   isMachineRecovered,
   isNrbSource,
   pagesLabel,
@@ -153,6 +154,22 @@ describe('fileTypeLabel', () => {
 
   it('is null when unknown', () => {
     expect(fileTypeLabel(null)).toBeNull()
+  })
+})
+
+describe('isBrowserViewable', () => {
+  // A browser renders these in a tab; the Office formats it cannot, so they get
+  // download only rather than a "view" that is really a second download.
+  it('is true for the browser-renderable formats', () => {
+    expect(isBrowserViewable(source({ file_type: 'pdf' }))).toBe(true)
+    expect(isBrowserViewable(source({ file_type: 'text' }))).toBe(true)
+    expect(isBrowserViewable(source({ file_type: 'csv' }))).toBe(true)
+  })
+
+  it('is false for docx, xlsx, and unknown types', () => {
+    expect(isBrowserViewable(source({ file_type: 'docx' }))).toBe(false)
+    expect(isBrowserViewable(source({ file_type: 'xlsx' }))).toBe(false)
+    expect(isBrowserViewable(source({ file_type: null }))).toBe(false)
   })
 })
 

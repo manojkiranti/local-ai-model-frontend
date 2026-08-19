@@ -129,6 +129,19 @@ export function fileTypeLabel(fileType: string | null | undefined): string | nul
   return raw.toLowerCase() === 'text' ? 'Text' : raw.toUpperCase()
 }
 
+/**
+ * File types a browser renders natively, so a citation for one can offer a
+ * "View" (new tab) alongside the always-present download. The Office formats
+ * (docx, xlsx) are deliberately absent: a browser cannot render them, so a
+ * "view" would just be a second download button wearing the wrong label.
+ */
+const VIEWABLE_FILE_TYPES = new Set(['pdf', 'text', 'csv'])
+
+/** Should this document offer an in-browser "View"? Download is always offered. */
+export function isBrowserViewable(source: Source): boolean {
+  return VIEWABLE_FILE_TYPES.has((source.file_type ?? '').toLowerCase())
+}
+
 /** File extension for the gateway's `file_type`, used to name a download. */
 const TYPE_EXTENSIONS: Record<string, string> = {
   pdf: 'pdf',

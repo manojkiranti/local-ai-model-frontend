@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Download,
   ExternalLink,
+  Eye,
   FileText,
   Library,
   Loader2,
@@ -11,6 +12,7 @@ import { useDocumentDownload } from '@/hooks/useDocumentDownload'
 import {
   externalLinkHost,
   fileTypeLabel,
+  isBrowserViewable,
   isMachineRecovered,
   isNrbSource,
   pagesLabel,
@@ -22,7 +24,7 @@ import {
 
 /** One cited document: what it is, where to verify it, and how to save it. */
 function SourceRow({ source }: { source: Source }) {
-  const { download, pending, error } = useDocumentDownload(source)
+  const { download, view, pending, error } = useDocumentDownload(source)
 
   const pages = pagesLabel(source.pages)
   const kind = fileTypeLabel(source.file_type)
@@ -31,6 +33,9 @@ function SourceRow({ source }: { source: Source }) {
   const routes = routesLabel(source.routes)
   const recovered = isMachineRecovered(source)
   const title = sourceTitle(source)
+  const hasDownload = Boolean(source.download_url)
+  // A browser can render a PDF/text/CSV in a tab; docx/xlsx get download only.
+  const canView = hasDownload && isBrowserViewable(source)
 
   return (
     <li className="rounded-lg border bg-background/60 px-3 py-2.5">
@@ -57,20 +62,35 @@ function SourceRow({ source }: { source: Source }) {
             </a>
           )}
         </div>
-        {source.download_url ? (
-          <button
-            type="button"
-            onClick={() => void download()}
-            disabled={pending}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-[11px] font-semibold transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {pending ? (
-              <Loader2 className="size-3.5 animate-spin" aria-hidden />
-            ) : (
-              <Download className="size-3.5" aria-hidden />
+        {hasDownload ? (
+          <div className="flex shrink-0 items-center gap-1.5">
+            {canView && (
+              <button
+                type="button"
+                onClick={() => void view()}
+                disabled={pending}
+                aria-label={`View ${title} in a new tab`}
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-[11px] font-semibold transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Eye className="size-3.5" aria-hidden />
+                View
+              </button>
             )}
-            {pending ? 'Opening…' : 'Download'}
-          </button>
+            <button
+              type="button"
+              onClick={() => void download()}
+              disabled={pending}
+              aria-label={`Download ${title}`}
+              className="inline-flex h-7 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-[11px] font-semibold transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {pending ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Download className="size-3.5" aria-hidden />
+              )}
+              {pending ? 'Opening…' : 'Download'}
+            </button>
+          </div>
         ) : (
           <span className="shrink-0 text-[11px] text-muted-foreground">No file</span>
         )}

@@ -46,13 +46,16 @@ const recovered = (overrides: Partial<Source> = {}) =>
   })
 
 /** Anchor clicks are intercepted: jsdom cannot navigate to a blob: URL. */
-const clicked: Array<{ href: string; download: string }> = []
+const clicked: Array<{ href: string; download: string; target: string }> = []
 
 beforeEach(() => {
   mockFetchDocument.mockReset()
   clicked.length = 0
   mockFetchDocument.mockResolvedValue({
-    headers: new Headers({ 'Content-Disposition': 'attachment; filename="stored.pdf"' }),
+    headers: new Headers({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'attachment; filename="stored.pdf"',
+    }),
     blob: async () => new Blob(['%PDF'], { type: 'application/pdf' }),
   } as Response)
   // jsdom implements neither object-URL method.
@@ -61,7 +64,7 @@ beforeEach(() => {
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
     this: HTMLAnchorElement,
   ) {
-    clicked.push({ href: this.href, download: this.download })
+    clicked.push({ href: this.href, download: this.download, target: this.target })
   })
 })
 
@@ -211,6 +214,7 @@ describe('downloading a cited document', () => {
   it('offers no download when the gateway sent no link', () => {
     render(<SourcesPanel sources={[source({ download_url: null })]} />)
     expect(screen.queryByRole('button', { name: /Download/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /View/ })).toBeNull()
     expect(screen.getByText('No file')).toBeTruthy()
   })
 
@@ -232,5 +236,60 @@ describe('downloading a cited document', () => {
     await waitFor(() =>
       expect(screen.getByText('This document is no longer available.')).toBeTruthy(),
     )
+  })
+})
+
+// A browser can render a PDF/text/CSV, so those get a "View" (new tab); the
+// Office formats it cannot render get download only.
+describe('viewing a cited document in the browser', () => {
+  it('offers View for a PDF and opens the authed blob in a new tab', async () => {
+    render(<SourcesPanel sources={[source({ file_type: 'pdf' })]} />)
+    fireEvent.click(screen.getByRole('button', { name: /View/ }))
+    await waitFor(() =>
+      expect(mockFetchDocument).toHaveBeenCalledWith(
+        '/v1/departments/hr/documents/doc-1/download',
+      ),
+    )
+    await waitFor(() => expect(clicked.length).toBe(1))
+    // Opened, not saved: a _blank target and no download attribute.
+    expect(clicked[0].href).toBe('blob:doc')
+    expect(clicked[0].target).toBe('_blank')
+    expect(clicked[0].download).toBe('')
+  })
+
+  it('offers View for text and CSV', () => {
+    cleanup()
+    render(<SourcesPanel sources={[source({ file_type: 'text' })]} />)
+    expect(screen.getByRole('button', { name: /View/ })).toBeTruthy()
+    cleanup()
+    render(<SourcesPanel sources={[source({ file_type: 'csv' })]} />)
+    expect(screen.getByRole('button', { name: /View/ })).toBeTruthy()
+  })
+
+  it('offers no View for docx or xlsx — download only', () => {
+    render(<SourcesPanel sources={[source({ file_type: 'docx' })]} />)
+    expect(screen.queryByRole('button', { name: /View/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Download/ })).toBeTruthy()
+    cleanup()
+    render(<SourcesPanel sources={[source({ file_type: 'xlsx' })]} />)
+    expect(screen.queryByRole('button', { name: /View/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Download/ })).toBeTruthy()
+  })
+
+  // The button appears from file_type, but the actual open is gated on the
+  // RESPONSE Content-Type: an unexpected type is saved, never opened in-tab.
+  it('falls back to saving when the response is not a viewable type', async () => {
+    mockFetchDocument.mockResolvedValue({
+      headers: new Headers({
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': 'attachment; filename="stored.pdf"',
+      }),
+      blob: async () => new Blob(['x'], { type: 'application/octet-stream' }),
+    } as Response)
+    render(<SourcesPanel sources={[source({ file_type: 'pdf' })]} />)
+    fireEvent.click(screen.getByRole('button', { name: /View/ }))
+    await waitFor(() => expect(clicked.length).toBe(1))
+    expect(clicked[0].target).toBe('')
+    expect(clicked[0].download).toBe('stored.pdf')
   })
 })

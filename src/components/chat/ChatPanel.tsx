@@ -1,8 +1,9 @@
-import { AlertTriangle, Building2, Globe2, Loader2, Wrench } from 'lucide-react'
+import { AlertTriangle, Loader2, Wrench } from 'lucide-react'
 import type { AttachmentDescriptor, UIMessage } from '@/hooks/useSessions'
 import type { Department } from '@/lib/api'
 import { useAttachment } from '@/hooks/useAttachment'
 import { attachmentWarning, describeUploadSummary } from '@/lib/upload-validation'
+import { DepartmentBar } from './DepartmentBar'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
 
@@ -62,42 +63,13 @@ export function ChatPanel({
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center gap-3 border-b px-4 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-xl border bg-muted/40 p-1">
-          <button
-            type="button"
-            onClick={() => onDepartmentChange(null)}
-            className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${
-              activeDepartment === null
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:bg-card/60 hover:text-foreground'
-            }`}
-          >
-            <Globe2 className={`size-3.5 ${activeDepartment === null ? 'text-primary' : ''}`} />
-            General
-          </button>
-          {departments.filter((department) => department.is_active).map((department) => (
-            <button
-              key={department.id}
-              type="button"
-              onClick={() => onDepartmentChange(department.code)}
-              title={`${department.name} (${department.code})`}
-              className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${
-                activeDepartment === department.code
-                  ? 'bg-card text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:bg-card/60 hover:text-foreground'
-              }`}
-            >
-              <Building2 className={`size-3.5 ${activeDepartment === department.code ? 'text-primary' : ''}`} />
-              {department.name}
-            </button>
-          ))}
-          {departmentsLoading && <Loader2 className="mx-1 size-4 shrink-0 animate-spin text-muted-foreground" />}
-          {departmentsError && (
-            <span className="mx-1 shrink-0 text-xs text-destructive" title={departmentsError}>
-              Departments unavailable
-            </span>
-          )}
-        </div>
+        <DepartmentBar
+          departments={departments}
+          loading={departmentsLoading}
+          error={departmentsError}
+          value={activeDepartment}
+          onChange={onDepartmentChange}
+        />
         <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground lg:flex">
           <Wrench className="size-3.5" />
           Tools automatic
