@@ -238,6 +238,15 @@ explicitly includes backend work.
   `app/rag/access.py`); this client reads `role` off the department row and
   decides nothing itself. The entry point is gated in
   `src/components/workspace/Workspace.tsx` and `src/components/layout/Sidebar.tsx`.
+- **User administration:** read `src/components/admin/UsersPage.tsx` and its test.
+  Backed by `GET /users` (admin-only, with `q`/`limit`/`offset`) and `PATCH
+  /users/{id}`. Only `is_active` is patchable — `role` is refused by the gateway,
+  so it is not on the `UserUpdate` type; do not add UI to change it. Deactivation
+  can **409** (your own account, or the last active admin); render it verbatim and
+  never treat it as an auth failure. `listUsers(params?, signal?)` defaults to a
+  single wide page so the RAG grant picker still sees everyone; the Users screen
+  passes explicit `q`/`limit`/`offset`. The nav entry (Sidebar) and route
+  (Workspace) are `isAdmin`-gated.
 - **NRB operations:** read `src/hooks/useNrbOps.ts`, `src/lib/nrb-format.ts`, and
   `src/components/admin/NrbOpsPage.test.tsx`, then hard rule 14. Pipeline
   lifecycle logic belongs to the gateway (`app/nrb/pipeline.py`); this screen

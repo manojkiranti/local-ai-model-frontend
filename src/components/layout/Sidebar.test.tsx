@@ -48,4 +48,14 @@ describe('Sidebar navigation', () => {
     renderSidebar({ canManageRag: true, isAdmin: true })
     expect(screen.getByRole('button', { name: 'NRB Updates' })).not.toBeNull()
   })
+
+  // `GET /users` and `PATCH /users/{id}` are global-admin routes, so the Users
+  // directory is offered to admins alone — a department curator does not get it.
+  it('keeps the Users directory for global admins only', () => {
+    renderSidebar({ canManageRag: true, isAdmin: false })
+    expect(screen.queryByRole('button', { name: 'Users' })).toBeNull()
+    cleanup()
+    renderSidebar({ isAdmin: true })
+    expect(screen.getByRole('button', { name: 'Users' })).not.toBeNull()
+  })
 })

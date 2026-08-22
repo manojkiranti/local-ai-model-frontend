@@ -10,9 +10,11 @@ import {
   listDepartmentDocuments,
   listDepartments,
   listFiles,
+  listUsers,
   login,
   readNdjson,
   register,
+  updateUser,
   uploadFile,
   uploadDepartmentDocument,
   GatewayError,
@@ -504,5 +506,75 @@ describe('department member grants', () => {
     })
     expect(onUnauthorized).not.toHaveBeenCalled()
     expect(getToken()).toBe('tok.grant')
+  })
+})
+
+describe('admin user administration', () => {
+  beforeEach(() => {
+    clearToken()
+    registerUnauthorizedHandler(() => {})
+    setToken('tok.users')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    clearToken()
+  })
+
+  const page = { total: 0, limit: 50, offset: 0, items: [] }
+
+  it('defaults to a single wide page so the grant picker still sees everyone', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(page))
+    await listUsers()
+    expect(String(fetchMock.mock.calls[0][0])).toBe('http://localhost:8000/users?limit=200')
+  })
+
+  it('passes the search query and pagination through', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(page))
+    await listUsers({ q: 'nina', limit: 50, offset: 100 })
+    const url = new URL(String(fetchMock.mock.calls[0][0]))
+    expect(url.pathname).toBe('/users')
+    expect(url.searchParams.get('q')).toBe('nina')
+    expect(url.searchParams.get('limit')).toBe('50')
+    expect(url.searchParams.get('offset')).toBe('100')
+  })
+
+  it('omits a blank query and a zero offset', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(page))
+    await listUsers({ q: '   ', limit: 50, offset: 0 })
+    const url = new URL(String(fetchMock.mock.calls[0][0]))
+    expect(url.searchParams.has('q')).toBe(false)
+    expect(url.searchParams.has('offset')).toBe(false)
+  })
+
+  it('PATCHes only is_active to the user, returning the updated row', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ id: 7, email: 'nina@odin.test', is_active: false }))
+    const updated = await updateUser(7, { is_active: false })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe('http://localhost:8000/users/7')
+    expect(init!.method).toBe('PATCH')
+    expect(JSON.parse(String(init!.body))).toEqual({ is_active: false })
+    expect(updated.is_active).toBe(false)
+  })
+
+  // A 409 (last active admin, or your own account) is a policy refusal, not an
+  // expired session — surface it and keep the token.
+  it('keeps the session on a 409 deactivation refusal', async () => {
+    const onUnauthorized = vi.fn()
+    registerUnauthorizedHandler(onUnauthorized)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse(
+        { detail: 'This is the last active admin; promote or activate another admin first' },
+        409,
+      ),
+    )
+    await expect(updateUser(3, { is_active: false })).rejects.toMatchObject({
+      status: 409,
+      message: 'This is the last active admin; promote or activate another admin first',
+    })
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    expect(getToken()).toBe('tok.users')
   })
 })

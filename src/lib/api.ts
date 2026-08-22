@@ -349,9 +349,44 @@ export interface UserListResponse {
   items: UserOut[]
 }
 
-/** Admin-only user list, used when granting department membership. */
-export async function listUsers(signal?: AbortSignal): Promise<UserListResponse> {
-  return request<UserListResponse>('/users?limit=200', { method: 'GET' }, signal)
+/** What an admin may change about a user. `role` is deliberately absent: the
+ * gateway forbids patching it (privilege escalation has its own surface), so it
+ * is not expressible here. `is_active` is the offboarding switch. */
+export interface UserUpdate {
+  is_active: boolean
+}
+
+/**
+ * Admin-only user directory. Defaults preserve the department-grant picker's
+ * previous behaviour (a single wide page); the admin Users screen passes
+ * `q`/`limit`/`offset` for search and pagination.
+ */
+export async function listUsers(
+  params: { q?: string; limit?: number; offset?: number } = {},
+  signal?: AbortSignal,
+): Promise<UserListResponse> {
+  const query = new URLSearchParams()
+  if (params.q && params.q.trim()) query.set('q', params.q.trim())
+  query.set('limit', String(params.limit ?? 200))
+  if (params.offset) query.set('offset', String(params.offset))
+  return request<UserListResponse>(`/users?${query.toString()}`, { method: 'GET' }, signal)
+}
+
+/**
+ * Activate or deactivate a user (admin only). Deactivation takes effect on the
+ * holder's next request. A 409 (`detail`) refuses deactivating your own account
+ * or the last active admin; render it verbatim — it is not an auth failure.
+ */
+export async function updateUser(
+  userId: number,
+  body: UserUpdate,
+  signal?: AbortSignal,
+): Promise<UserOut> {
+  return request<UserOut>(
+    `/users/${userId}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+    signal,
+  )
 }
 
 // --------------------------------------------------------------------------- //

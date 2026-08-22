@@ -12,6 +12,7 @@ import {
   Search,
   Settings2,
   Trash2,
+  UsersRound,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -81,6 +82,7 @@ export function Sidebar({
   const onFiles = location.pathname === '/files'
   const onAdmin = location.pathname === '/admin'
   const onNrb = location.pathname === '/admin/nrb'
+  const onUsers = location.pathname === '/admin/users'
   const groupedSessions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     const filtered = normalizedQuery
@@ -170,6 +172,19 @@ export function Sidebar({
           >
             <Settings2 className={cn('size-4', onAdmin ? 'text-primary' : 'text-sidebar-muted-foreground')} />
             RAG Admin
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => openPage('/admin/users')}
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+              onUsers ? 'bg-primary/15 text-sidebar-foreground' : 'text-sidebar-foreground/80 hover:bg-white/5',
+            )}
+          >
+            <UsersRound className={cn('size-4', onUsers ? 'text-primary' : 'text-sidebar-muted-foreground')} />
+            Users
           </button>
         )}
         {isAdmin && (

@@ -32,6 +32,8 @@ Authoritative live spec: `http://localhost:8000/openapi.json` (Swagger at
 | POST | `/auth/register` | — | `{email,password}` → 201 user. First user becomes **admin**; 409 if email exists; password ≥ 8. Returns the user, **not** a token. |
 | POST | `/auth/login` | — | `{email,password}` → `{access_token, token_type, expires_in}`. 401 on bad credentials. |
 | GET  | `/users/me` | bearer | Current user `{id, email, role, …}`. Roles: `admin` \| `member`. |
+| GET  | `/users` | bearer + admin | Directory `{total, limit, offset, items:[UserOut]}`. Supports **`q`** (case-insensitive email substring; LIKE wildcards are literal), **`limit`** (≤ 200), and **`offset`**. Used by the Users screen for search + pagination, and unfiltered by the department-grant picker. |
+| PATCH | `/users/{id}` | bearer + admin | Activate / deactivate a user — body is **`{is_active}`** only (`role` is **not** patchable and is refused). Deactivation takes effect on the holder's next request (the user row is re-read per request). **409** refuses deactivating **your own account** or the **last active admin**; render it verbatim — it is a policy refusal, not an expired session. Reactivation is always allowed. |
 | POST | `/v1/chat` | bearer | **The one endpoint** — stateful, tool-capable, streaming. `{session_id?, message, department?, model?, stream?, options?, file_ids?}`. Send `department` only when creating a department-bound session; continuing turns send the `session_id` and the server remembers the binding. `stream:true` → **NDJSON of typed events** (`token` / `tool_call` / `tool_result` / `done`, **not** SSE) with the new session id in the **`X-Session-Id` response header**. Both shapes carry **`sources`** — the department documents the answer was grounded in — and on a stream it arrives **only on `done`** (citations resolve against the final answer's `[N]` markers). `null` means no corpus was searched; a general chat is always `null`. Not suppressed by `EXPOSE_TRACE`. |
 | GET  | `/v1/sessions` | bearer | Sidebar list `[{id, title, created_at, updated_at, message_count}]`, newest-updated first. |
 | GET  | `/v1/sessions/{id}` | bearer | Full thread `{…, messages:[{id, seq, role, content, trace, sources, model, created_at}]}`. Assistant rows whose turn called tools carry non-null `trace`; rows grounded in the corpus replay `sources` (its `download_url` is recomputed on read). 404 = gone. |
@@ -153,13 +155,17 @@ unavailable"`, otherwise it surfaces `detail`.
   every editor would be bounced before their grants arrive). Inside a department:
   a **viewer** reads the corpus; an **editor** also uploads PDF/DOCX/XLSX/CSV or
   typed knowledge, watches the 202 ingestion job every two seconds, and archives
-  documents; an **owner** also gets the members screen, granting by **email** and
-  changing a listed member's level in place. The grant form's level starts
-  **Unchanged** and the field is then omitted from the request — sending a
-  `viewer` nobody picked would silently demote an existing member. Creating,
+  documents; an **owner** also gets the members screen, and changes a listed
+  member's level in place. New members are added in a **batch**: admins pick
+  several people from a searchable directory popover, an owner (who cannot read
+  the directory) types addresses that queue as chips, one level applies to the
+  whole batch, and the grants run one by one so a refusal on one recipient never
+  aborts the rest — the result is a per-recipient summary. The batch level starts
+  **Unchanged** and is then omitted from each request — sending a `viewer` nobody
+  picked would silently demote an existing member. Creating,
   renaming and enabling/disabling a department stay **global-admin** controls, as
-  does the `GET /users` directory (offered to admins as email suggestions; an
-  owner types the address, which the gateway resolves server-side). A **403**
+  does the `GET /users` directory that backs the admin picker (an owner has no
+  directory and grants by the address the gateway resolves server-side). A **403**
   renders the gateway's `detail` verbatim with "ask a global admin" and never
   returns to login — the user is signed in and simply lacks the level; the form
   keeps what they typed and nothing is retried. A **409** (granting a deactivated
@@ -167,6 +173,14 @@ unavailable"`, otherwise it surfaces `detail`.
   change. An ingest job that answers **404** is marked unavailable and polling
   stops. If `role` ever arrives absent or unrecognised the screen fails closed
   **and says so**, rather than silently hiding every control.
+- **Users** — admins get a `/admin/users` directory backed by `GET /users` (with
+  its `q` search and pagination, so it scales past the old 200-row cap) and
+  `PATCH /users/{id}`. Each row shows the email, the **read-only** global role
+  (there is no endpoint to change it), and active status, with a single
+  activate/deactivate toggle. Deactivation is the offboarding lever — it cuts the
+  account's access off on its next request. The admin's **own** row cannot
+  self-deactivate (disabled up front); the **last active admin** case comes back
+  as a **409** rendered verbatim, and neither logs anyone out.
 - **NRB updates** — admins get a `/admin/nrb` screen over the three `/v1/nrb`
   endpoints: the update in progress (or the latest result) with its status,
   stage, timestamps, counters, job counts and failure text; and the catalog /

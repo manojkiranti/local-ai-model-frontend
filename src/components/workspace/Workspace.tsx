@@ -7,6 +7,7 @@ import { ChatPanel } from '@/components/chat/ChatPanel'
 import { FilesPage } from '@/components/files/FilesPage'
 import { AdminRagPage } from '@/components/admin/AdminRagPage'
 import { NrbOpsPage } from '@/components/admin/NrbOpsPage'
+import { UsersPage } from '@/components/admin/UsersPage'
 import { FullScreenSpinner } from '@/components/routing/FullScreenSpinner'
 import { hasAnyDepartmentAtLeast } from '@/lib/department-scopes'
 import { useHealth } from '@/hooks/useHealth'
@@ -158,6 +159,13 @@ export function Workspace() {
               <Route
                 path="admin/nrb"
                 element={<NrbOpsPage departments={departmentState.departments} />}
+              />
+              {/* Like NRB: no client redirect. A non-admin who reaches this URL
+                  sees the gateway's 403 in-page, which is not an expired
+                  session and must not bounce them to login. */}
+              <Route
+                path="admin/users"
+                element={<UsersPage currentUserId={user?.id ?? -1} />}
               />
             </Routes>
           </div>
