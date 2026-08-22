@@ -172,6 +172,27 @@ explicitly includes backend work.
     the affected behavior. Do not consider the task complete until the relevant
     tests pass. If automated testing is genuinely impractical, explicitly
     explain why and describe the manual verification performed.
+17. **A department grant's level decides department UI; the global role does
+    not.** `Department.role` (`viewer` < `editor` < `owner`) already folds in
+    global admins — an admin reads `owner` everywhere — so gate anything scoped
+    to a department on it ALONE, through `atLeast` in
+    `src/lib/department-scopes.ts`. That module holds the only copy of the
+    ordering on the client: no inline `role === 'editor' || role === 'owner'`,
+    and it fails closed, so an absent or unrecognised level shows nothing. The
+    exceptions are the routes that really are global: department create / rename
+    / enable-disable, `GET /users`, and `/v1/nrb/*` gate on `isAdmin`. Two more
+    traps. A 403 from a level check is NOT an auth failure — the caller is signed
+    in and lacks the level, so render `detail` verbatim, keep the form, never
+    retry, and never let it reach the 401 path (only 401 clears the token). And
+    the escalation rule (an owner may not mint, change or revoke another owner)
+    depends on facts the client does not hold; do not reimplement it — leave the
+    control enabled and render the refusal — an owner MAY act on their own row.
+    An owner cannot read `GET /users`, so grant by `email`; `user_id` is for
+    changing a member already listed. `POST .../members` UPSERTS, so never send a
+    `role` the user did not choose: omitting it keeps an existing member's level,
+    while a client-side `viewer` default silently demotes them. Members routes
+    work on a soft-disabled department (grants outlive it); the corpus routes
+    still 404 there.
 
 ## Testing conventions
 
@@ -211,6 +232,12 @@ explicitly includes backend work.
   `src/components/chat/SourcesPanel.tsx`, `src/hooks/useDocumentDownload.ts`, and
   hard rule 15. The gateway resolves which documents an answer used
   (`app/rag/sources.py`); this UI formats and links them and derives nothing.
+- **Department levels / the RAG admin screen:** read
+  `src/lib/department-scopes.ts` and its test, `src/components/admin/AdminRagPage.tsx`,
+  and hard rule 17. The gateway computes the level (`app/rag/permissions.py`,
+  `app/rag/access.py`); this client reads `role` off the department row and
+  decides nothing itself. The entry point is gated in
+  `src/components/workspace/Workspace.tsx` and `src/components/layout/Sidebar.tsx`.
 - **NRB operations:** read `src/hooks/useNrbOps.ts`, `src/lib/nrb-format.ts`, and
   `src/components/admin/NrbOpsPage.test.tsx`, then hard rule 14. Pipeline
   lifecycle logic belongs to the gateway (`app/nrb/pipeline.py`); this screen

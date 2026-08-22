@@ -32,7 +32,14 @@ const mockStatus = vi.mocked(getNrbStatus)
 const mockTrigger = vi.mocked(triggerNrbRun)
 
 const DEPARTMENTS: Department[] = [
-  { id: 1, code: 'research', name: 'Research', is_active: true, created_at: '2026-08-01T00:00:00Z' },
+  {
+    id: 1,
+    code: 'research',
+    name: 'Research',
+    is_active: true,
+    created_at: '2026-08-01T00:00:00Z',
+    role: 'owner',
+  },
 ]
 
 function makeRun(overrides: Partial<NrbRun> = {}): NrbRun {

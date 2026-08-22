@@ -7,6 +7,8 @@ import { ChatPanel } from '@/components/chat/ChatPanel'
 import { FilesPage } from '@/components/files/FilesPage'
 import { AdminRagPage } from '@/components/admin/AdminRagPage'
 import { NrbOpsPage } from '@/components/admin/NrbOpsPage'
+import { FullScreenSpinner } from '@/components/routing/FullScreenSpinner'
+import { hasAnyDepartmentAtLeast } from '@/lib/department-scopes'
 import { useHealth } from '@/hooks/useHealth'
 import { useSessions } from '@/hooks/useSessions'
 import { useTheme } from '@/hooks/useTheme'
@@ -24,6 +26,12 @@ export function Workspace() {
     typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches,
   )
   const [activeDepartment, setActiveDepartment] = useState<string | null>(null)
+
+  // The RAG screen is no longer admin-only: curation is a per-department level,
+  // so anyone holding editor or owner anywhere needs the entry point. Read from
+  // the gateway's own `role` field — it already folds in global admins, and a
+  // second copy of the policy here would drift from the one the API enforces.
+  const canManageRag = isAdmin || hasAnyDepartmentAtLeast(departmentState.departments, 'editor')
 
   const changeDepartment = (code: string | null) => {
     if (code === activeDepartment) return
@@ -81,6 +89,7 @@ export function Workspace() {
             onCollapse={() => setSidebarOpen(false)}
             onNavigate={closeSidebarOnMobile}
             isAdmin={isAdmin}
+            canManageRag={canManageRag}
             email={user?.email ?? ''}
             role={user?.role ?? 'member'}
             onLogout={logout}
@@ -124,11 +133,17 @@ export function Workspace() {
               <Route
                 path="admin"
                 element={
-                  isAdmin ? (
+                  canManageRag ? (
                     <AdminRagPage
                       departments={departmentState.departments}
                       onDepartmentsChanged={departmentState.reload}
+                      isAdmin={isAdmin}
                     />
+                  ) : departmentState.loading ? (
+                    // The grants decide this, and they arrive after the first
+                    // paint. Redirecting on the empty initial list would bounce
+                    // every editor straight back to the chat.
+                    <FullScreenSpinner />
                   ) : (
                     <Navigate to="/" replace />
                   )

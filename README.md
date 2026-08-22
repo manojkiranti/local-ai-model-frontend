@@ -41,12 +41,12 @@ Authoritative live spec: `http://localhost:8000/openapi.json` (Swagger at
 | GET  | `/v1/files` | bearer | The current user's generated files `{files:[{id, filename, media_type, size, created_at}]}`, newest-first and owner-scoped server-side. |
 | DELETE | `/v1/files/{id}` | bearer | Delete an uploaded or generated file → 204; 404 = already gone. |
 | GET  | `/v1/files/{id}` | bearer | Download a generated file — fetch **with** the bearer header and turn the response into a blob URL (a plain `<a href>` can't send the header). Owner-scoped: 404 = not yours / gone. |
-| GET | `/v1/departments` | bearer | Available RAG departments. Members receive only active granted departments; admins receive every department. |
-| POST/PATCH | `/v1/departments[/{code}]` | bearer + admin | Create, rename, enable, and disable departments. |
-| GET/POST/DELETE | `/v1/departments/{code}/members[...]` | bearer + admin | List, grant, and revoke department access. |
-| GET/POST/DELETE | `/v1/departments/{code}/documents[...]` | bearer (writes admin-only) | List corpus documents; upload files, add text, and archive documents. Uploads return 202. |
+| GET | `/v1/departments` | bearer | Available RAG departments. Members receive only active granted departments; admins receive every department. Each row carries **`role`** — the caller's own level here (`viewer` \| `editor` \| `owner`), already accounting for global admins (an admin reads `owner` everywhere). It is the **single** input to what this client draws for a department; never recombine it with the global `admin`/`member` role. |
+| POST/PATCH | `/v1/departments[/{code}]` | bearer + admin | Create, rename, enable, and disable departments. Still **global admin** — `owner` is a level *inside* a department and does not reach these. |
+| GET/POST/DELETE | `/v1/departments/{code}/members[...]` | bearer + **owner** (or admin) | List, grant, and revoke department access. Works on a **soft-disabled** department too, unlike the corpus routes — grants outlive `is_active = false` so offboarding never needs a retired department reactivated. `MemberOut` carries `role` and `email` (an owner cannot read `GET /users`, so grant by **`email`**). POST **upserts**, so it is also promote/demote — and an omitted `role` means *do not change the level* (a new member lands on `viewer`, an existing one keeps theirs). **Never send a client-side `viewer` default**: it turns a re-grant into a silent demotion the server cannot distinguish from a deliberate one. Refusals to render verbatim: three 403s (no grant / editor required / owner required), the two owner-escalation 403s (an owner may not mint another owner, nor change or revoke *another* owner — their own row is fine), and a **409** for a deactivated account. |
+| GET/POST/DELETE | `/v1/departments/{code}/documents[...]` | bearer (writes **editor**) | List corpus documents; upload files, add text, and archive documents. Uploads return 202. A **viewer** sees `ready` documents only and gets 403 for `?include_archived=true`; an **editor** sees every non-archived document plus `embed_model` / `embed_dim` / `updated_at`. |
 | GET | `/v1/departments/{code}/documents/{document_id}/download` | bearer | The original bytes of a **cited** document — what a chat citation links to. Fetch **with** the bearer header and build a blob URL (a plain `<a href>` can't send it). 403 = no grant for the department; 404 = unknown document, another department's, not `ready` (members), or its bytes are missing. |
-| GET | `/v1/ingest-jobs/{job_id}` | bearer + admin | Poll asynchronous document ingestion progress. |
+| GET | `/v1/ingest-jobs/{job_id}` | bearer + **editor** of that job's department (or admin) | Poll asynchronous document ingestion progress. Refusal is **404, not 403** — a job id maps to a document, so the API will not confirm it exists. Treat 404 as "no longer available" and **stop polling**; it can never become readable. |
 | GET | `/v1/nrb/status` | bearer + admin | Operational state `{active_run, latest_run, catalog, files, rag}`. **Not a pure read** — the handler settles finished runs and commits, so polling it is what advances an `awaiting_jobs` run. `catalog`/`files` are flat `{string:int}`; `rag` mixes scalars with nested `documents`/`jobs` maps. |
 | POST | `/v1/nrb/runs` | bearer + admin | Trigger an update. **202 and 409 share one envelope** `{started, run, detail}` — a 409 carries the run already in progress. A bounded scope is required (422 otherwise); `all_files` is deliberately unavailable over HTTP. |
 | GET | `/v1/nrb/runs/{id}` | bearer + admin | One run (`RunOut`), reconciled if still waiting. Terminal runs are frozen. |
@@ -146,10 +146,27 @@ unavailable"`, otherwise it surfaces `detail`.
   text layer`, `legacy Nepali font conversion`) and, for NRB documents, a link
   to the official page on `nrb.org.np` to check against. A reloaded thread
   renders identically, from the `sources` replayed by `GET /v1/sessions/{id}`.
-- **RAG Admin** — admins get a `/admin` workspace for creating/disabling
-  departments, uploading PDF/DOCX/XLSX/CSV or typed knowledge, watching the 202
-  ingestion job progress every two seconds, archiving documents, and granting or
-  revoking members. Members are redirected away from the route.
+- **RAG Admin** — a `/admin` workspace scoped by the caller's **per-department
+  level**, not by the global role. The nav entry and the route open for a global
+  admin or for anyone holding `editor`/`owner` in at least one department;
+  everyone else is redirected (the redirect waits for the department list, or
+  every editor would be bounced before their grants arrive). Inside a department:
+  a **viewer** reads the corpus; an **editor** also uploads PDF/DOCX/XLSX/CSV or
+  typed knowledge, watches the 202 ingestion job every two seconds, and archives
+  documents; an **owner** also gets the members screen, granting by **email** and
+  changing a listed member's level in place. The grant form's level starts
+  **Unchanged** and the field is then omitted from the request — sending a
+  `viewer` nobody picked would silently demote an existing member. Creating,
+  renaming and enabling/disabling a department stay **global-admin** controls, as
+  does the `GET /users` directory (offered to admins as email suggestions; an
+  owner types the address, which the gateway resolves server-side). A **403**
+  renders the gateway's `detail` verbatim with "ask a global admin" and never
+  returns to login — the user is signed in and simply lacks the level; the form
+  keeps what they typed and nothing is retried. A **409** (granting a deactivated
+  account) renders verbatim *without* that hint, since reactivation is a different
+  change. An ingest job that answers **404** is marked unavailable and polling
+  stops. If `role` ever arrives absent or unrecognised the screen fails closed
+  **and says so**, rather than silently hiding every control.
 - **NRB updates** — admins get a `/admin/nrb` screen over the three `/v1/nrb`
   endpoints: the update in progress (or the latest result) with its status,
   stage, timestamps, counters, job counts and failure text; and the catalog /
@@ -304,6 +321,43 @@ src/
    contract or to this panel, and review monthly: check that every field the
    gateway sends is either rendered or deliberately dropped, and that no route
    value rendered as an unlabelled fallback (a new extraction route was added).
+
+## Evaluation & Improvement — per-department roles
+
+1. **Success metric.** Share of department corpus curation done by the people who
+   own the knowledge **without a global admin in the loop** — measured as:
+   documents ingested and grants changed by a caller who is *not* a global admin
+   ÷ all such actions. The nearest proxy while volume is low is
+   `documents.uploaded_by` and `user_departments.granted_by` rows pointing at
+   non-admin users. The safety half is stricter: **zero** controls rendered that
+   the gateway then refuses, and **zero** 403s that end a session.
+2. **Eval.** The labelled set is `src/lib/department-scopes.test.ts` (12 cases —
+   the ordering exhausted, every level against every minimum, plus everything
+   that is not a level failing closed), `src/components/admin/AdminRagPage.test.tsx`
+   (20), `src/components/workspace/Workspace.test.tsx` (4),
+   `src/components/layout/Sidebar.test.tsx` (3) and the grant cases in
+   `src/lib/api.test.ts` (5). It fixes the shapes the gateway actually returns and
+   scores rendered output and outgoing request bodies against them, covering the
+   failure modes that make levels dangerous rather than merely wrong: a viewer
+   offered a control the API refuses, an owner's screen killed by the admin-only
+   `GET /users`, a 403 escalation refusal treated as an expired session, both
+   grant identifiers sent at once (a *type* error, not a runtime one), a 404
+   ingest job polled forever, and a `role` the caller never chose being sent on
+   an upsert (a silent demotion). **Current pass rate: 375/375** (`npm run test`,
+   whole suite). Not yet exercised against a live gateway.
+3. **Feedback capture.** This screen captures none itself. The durable record is
+   the gateway's: `user_departments` (`role`, `granted_by`, `granted_at`, refreshed
+   on every level change, so the row says who set *this* level and when) and
+   `documents.uploaded_by`. A control that appears and is then refused shows up as
+   a 403 in the gateway access log against a route this client offered — that
+   pairing is the signal worth watching, and it should be empty. Corrections
+   arrive as cases added to the eval set above; add the case before changing
+   behaviour.
+4. **Review loop.** Re-run the eval on every change to `role` in the department
+   contract or to the gating in `src/lib/department-scopes.ts`, and review
+   monthly: check that no component gates on a level inline instead of calling
+   `atLeast`, that nothing outside `department-scopes.ts` knows the ordering, and
+   that no department-scoped decision has quietly started reading `isAdmin`.
 
 See `docs/superpowers/specs/2026-07-30-auth-gateway-wiring-design.md` and
 `docs/superpowers/plans/2026-07-30-auth-gateway-wiring.md` for the auth design

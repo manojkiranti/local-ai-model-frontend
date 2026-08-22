@@ -24,5 +24,9 @@ export function useDepartments() {
     void reload()
   }, [reload])
 
+  // No `roleFor(code)` helper here on purpose: both consumers already hold the
+  // whole department row (`AdminRagPage` selects one from its prop; `Workspace`
+  // asks an any-department question), so a lookup would ship unused. The level
+  // is read straight off `Department.role` and ranked by `atLeast`.
   return { departments, loading, error, reload }
 }

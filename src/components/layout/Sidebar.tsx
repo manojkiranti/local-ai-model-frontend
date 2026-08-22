@@ -49,6 +49,13 @@ interface SidebarProps {
   onCollapse: () => void
   onNavigate: () => void
   isAdmin: boolean
+  /**
+   * May reach the department RAG screen: a global admin, or anyone holding
+   * `editor`/`owner` in at least one department. Separate from `isAdmin` because
+   * curation is a per-department level now, while `/v1/nrb/*` below is still the
+   * global role.
+   */
+  canManageRag: boolean
   email: string
   role: 'admin' | 'member'
   onLogout: () => void
@@ -63,6 +70,7 @@ export function Sidebar({
   onCollapse,
   onNavigate,
   isAdmin,
+  canManageRag,
   email,
   role,
   onLogout,
@@ -151,7 +159,7 @@ export function Sidebar({
           <FolderOpen className={cn('size-4', onFiles ? 'text-primary' : 'text-sidebar-muted-foreground')} />
           My Files
         </button>
-        {isAdmin && (
+        {canManageRag && (
           <button
             type="button"
             onClick={() => openPage('/admin')}

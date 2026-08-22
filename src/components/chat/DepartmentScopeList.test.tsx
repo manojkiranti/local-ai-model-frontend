@@ -12,6 +12,7 @@ function department(overrides: Partial<Department> = {}): Department {
     name: 'Human Resources',
     is_active: true,
     created_at: '2026-01-01T00:00:00Z',
+    role: 'viewer',
     ...overrides,
   }
 }

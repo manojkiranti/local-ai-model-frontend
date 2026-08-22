@@ -6,6 +6,7 @@ import {
   fetchDepartmentDocument,
   getMe,
   getIngestJob,
+  grantDepartmentMember,
   listDepartmentDocuments,
   listDepartments,
   listFiles,
@@ -18,6 +19,7 @@ import {
 } from '@/lib/api'
 import {
   clearToken,
+  getToken,
   registerUnauthorizedHandler,
   setToken,
 } from '@/lib/auth-token'
@@ -412,5 +414,95 @@ describe('cited document download', () => {
     await expect(
       fetchDepartmentDocument('/v1/departments/hr/documents/doc-1/download'),
     ).rejects.toMatchObject({ status: 403, message: 'No access to department hr' })
+  })
+})
+
+// Granting is also promote/demote, and the gateway takes `user_id` XOR `email`
+// with `extra="forbid"` — so exactly one identifier goes on the wire.
+describe('department member grants', () => {
+  beforeEach(() => {
+    clearToken()
+    registerUnauthorizedHandler(() => {})
+    setToken('tok.grant')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    clearToken()
+  })
+
+  // The endpoint UPSERTS, so an absent `role` means "do not change the level"
+  // (viewer for a new grant, unchanged for an existing one). A client-side
+  // default of 'viewer' is therefore a silent demotion on any re-grant: the
+  // server cannot tell it from a deliberate one, and must not try.
+  it('omits role entirely when the caller chose no level', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    await grantDepartmentMember('human-resources', { email: 'nina@odin.test' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe(
+      'http://localhost:8000/v1/departments/human-resources/members',
+    )
+    expect(init!.method).toBe('POST')
+    const body = JSON.parse(String(init!.body))
+    expect(body).toEqual({ email: 'nina@odin.test' })
+    expect('role' in body).toBe(false)
+  })
+
+  it('sends the level when the caller chose one', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    await grantDepartmentMember('human-resources', { email: 'nina@odin.test' }, 'owner')
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]!.body))).toEqual({
+      email: 'nina@odin.test',
+      role: 'owner',
+    })
+  })
+
+  it('changes an existing member level by user id, sending no email', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    await grantDepartmentMember('finance', { user_id: 42 }, 'editor')
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]!.body))
+    expect(body).toEqual({ user_id: 42, role: 'editor' })
+    expect('email' in body).toBe(false)
+  })
+
+  // Trap: a 403 here is an escalation refusal, not an expired session. Firing
+  // the unauthorized handler would log an owner out for overreaching.
+  it('keeps the session on a 403 escalation refusal', async () => {
+    const onUnauthorized = vi.fn()
+    registerUnauthorizedHandler(onUnauthorized)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse(
+        { detail: 'Only a global admin can grant owner access to a department' },
+        403,
+      ),
+    )
+    await expect(
+      grantDepartmentMember('finance', { email: 'nina@odin.test' }, 'owner'),
+    ).rejects.toMatchObject({
+      status: 403,
+      message: 'Only a global admin can grant owner access to a department',
+    })
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    expect(getToken()).toBe('tok.grant')
+  })
+
+  it('keeps the session on a 403 from a level-gated read', async () => {
+    const onUnauthorized = vi.fn()
+    registerUnauthorizedHandler(onUnauthorized)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'Editor access to this department is required' }, 403),
+    )
+    await expect(listDepartmentDocuments('finance', true)).rejects.toMatchObject({
+      status: 403,
+      message: 'Editor access to this department is required',
+    })
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    expect(getToken()).toBe('tok.grant')
   })
 })

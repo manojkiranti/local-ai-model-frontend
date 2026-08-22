@@ -628,17 +628,36 @@ export async function deleteSession(id: string, signal?: AbortSignal): Promise<v
 // --------------------------------------------------------------------------- //
 // Department-scoped RAG
 // --------------------------------------------------------------------------- //
+/**
+ * A department grant's level, weakest to strongest. Ordered, so "at least
+ * editor" is one comparison — see `atLeast` in `@/lib/department-scopes`, which
+ * owns the ranking. Distinct from `UserOut.role`, the global admin/member role
+ * that gates `/users/*` and `/v1/nrb/*`.
+ */
+export type DepartmentRole = 'viewer' | 'editor' | 'owner'
+
 export interface Department {
   id: number
   code: string
   name: string
   is_active: boolean
   created_at: string
+  /**
+   * The CALLER's effective level here, already accounting for global admins (an
+   * admin reads `owner` everywhere). The single input to what this client draws
+   * for a department: never recombine it with the global role, or the two copies
+   * of the policy drift and we offer a control the gateway then refuses.
+   */
+  role: DepartmentRole
 }
 
 export interface DepartmentMember {
   user_id: number
   department_id: number
+  role: DepartmentRole
+  /** Present because `GET /users` is admin-only: an owner has no other way to
+   *  tell members apart. */
+  email: string
   granted_by: number | null
   granted_at: string
 }
@@ -714,14 +733,45 @@ export async function listDepartmentMembers(
   )
 }
 
+/**
+ * Who to grant. The gateway takes `user_id` XOR `email` under `extra="forbid"`,
+ * so supplying both is made a TYPE error rather than a 422: the `never` arms are
+ * what stop `{ user_id, email }` slipping past the union's excess-property check.
+ *
+ * `email` exists so an OWNER can grant at all — `GET /users` is admin-only, so
+ * they cannot resolve an address to an id themselves.
+ */
+export type GrantTarget =
+  | { user_id: number; email?: never }
+  | { email: string; user_id?: never }
+
+/**
+ * Grant department access, or change an existing member's level — one endpoint
+ * does both, because it UPSERTS.
+ *
+ * That is why `role` is optional and the key is OMITTED when it is not passed.
+ * Absent means "do not change the level": a new member lands on `viewer`, an
+ * existing one keeps what they have. A client-side default of `'viewer'` would
+ * turn every re-grant into a silent demotion — the server cannot distinguish it
+ * from a deliberate one, and must not try. Pass `role` only when a user actually
+ * chose a level.
+ *
+ * 403 here is an escalation refusal ("Only a global admin can grant owner
+ * access…") and 409 is a deactivated account, never an auth failure: the caller
+ * stays signed in and the `detail` is meant to be shown verbatim.
+ */
 export async function grantDepartmentMember(
   code: string,
-  userId: number,
+  target: GrantTarget,
+  role?: DepartmentRole,
   signal?: AbortSignal,
 ): Promise<void> {
   const res = await rawFetch(
     `/v1/departments/${encodeURIComponent(code)}/members`,
-    { method: 'POST', body: JSON.stringify({ user_id: userId }) },
+    {
+      method: 'POST',
+      body: JSON.stringify(role === undefined ? target : { ...target, role }),
+    },
     signal,
   )
   if (!res.ok) throw await errorFromResponse(res)
