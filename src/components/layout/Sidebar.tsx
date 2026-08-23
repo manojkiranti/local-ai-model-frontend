@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   ChevronsUpDown,
   FolderOpen,
   LogOut,
   MessageSquare,
+  Loader2,
   MoreHorizontal,
   PanelLeft,
   Plus,
@@ -60,6 +61,10 @@ interface SidebarProps {
   email: string
   role: 'admin' | 'member'
   onLogout: () => void
+  /** True while the server has another page of conversations. */
+  hasMoreSessions: boolean
+  loadingMoreSessions: boolean
+  onLoadMoreSessions: () => void
 }
 
 export function Sidebar({
@@ -75,6 +80,9 @@ export function Sidebar({
   email,
   role,
   onLogout,
+  hasMoreSessions,
+  loadingMoreSessions,
+  onLoadMoreSessions,
 }: SidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -96,6 +104,27 @@ export function Sidebar({
       sessions: filtered.filter((session) => conversationGroup(session.updated_at) === label),
     })).filter((group) => group.sessions.length > 0)
   }, [query, sessions])
+
+  const sentinelRef = useRef<HTMLButtonElement>(null)
+  const searching = query.trim().length > 0
+
+  // Auto-load the next page as the sentinel scrolls into view. While a search
+  // is active it stays a manual button instead: the gateway has no search
+  // parameter on this route, so the filter only sees rows already loaded, and
+  // an empty result would otherwise chain-load the entire history unprompted.
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || searching || !hasMoreSessions || loadingMoreSessions) return
+    if (typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onLoadMoreSessions()
+      },
+      { rootMargin: '120px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [searching, hasMoreSessions, loadingMoreSessions, onLoadMoreSessions])
 
   // Chat actions always return to the chat view (the sidebar shows on every page).
   const selectChat = (id: string) => {
@@ -220,7 +249,10 @@ export function Sidebar({
             No conversations yet — start a new chat.
           </p>
         ) : groupedSessions.length === 0 ? (
-          <p className="px-3 py-2 text-xs text-sidebar-muted-foreground">No chats match “{query}”.</p>
+          <p className="px-3 py-2 text-xs text-sidebar-muted-foreground">
+            No loaded chats match “{query}”.
+            {hasMoreSessions ? ' Load more to search further back.' : ''}
+          </p>
         ) : (
           groupedSessions.map((group) => (
             <div key={group.label} className="mb-2">
@@ -277,6 +309,19 @@ export function Sidebar({
               </div>
             </div>
           ))
+        )}
+
+        {hasMoreSessions && (
+          <button
+            ref={sentinelRef}
+            type="button"
+            onClick={onLoadMoreSessions}
+            disabled={loadingMoreSessions}
+            className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11px] text-sidebar-muted-foreground transition-colors hover:bg-white/5 hover:text-sidebar-foreground disabled:cursor-not-allowed"
+          >
+            {loadingMoreSessions && <Loader2 className="size-3 animate-spin" />}
+            {loadingMoreSessions ? 'Loading…' : 'Load older conversations'}
+          </button>
         )}
       </nav>
 

@@ -57,8 +57,16 @@ export interface EmbeddingsResponse {
 // session_id). A turn sends ONLY the new user message; omit session_id to start
 // a new conversation (the server mints and returns one).
 // --------------------------------------------------------------------------- //
+/**
+ * Backend limit on `ChatTurnRequest.message` (`max_length=8000`). Over it the
+ * gateway returns 422, so the composer blocks the send rather than losing the
+ * user's text to a rejected round trip.
+ */
+export const CHAT_MESSAGE_MAX_LENGTH = 8000
+
 export interface ChatTurnRequest {
   session_id?: string
+  /** Non-empty, at most `CHAT_MESSAGE_MAX_LENGTH` characters. */
   message: string
   model?: string
   file_ids?: string[]
@@ -131,12 +139,45 @@ export interface SessionSummary {
   message_count: number
 }
 
+/**
+ * One page of `GET /v1/sessions`. `next_cursor` is an OPAQUE server token: echo
+ * it back verbatim to fetch the following page and never parse, build, or
+ * persist one. `null` means there is no further page.
+ */
+export interface SessionListPage {
+  items: SessionSummary[]
+  next_cursor: string | null
+}
+
+/**
+ * One page of a conversation. `messages` is NOT the whole thread: it is the
+ * NEWEST page (still ascending by `seq`), so paging runs BACKWARDS through
+ * history — `next_cursor` fetches the page of OLDER messages before this one.
+ */
 export interface SessionDetail {
   id: string
   title: string | null
   created_at: string
   updated_at: string
   messages: ThreadMessage[]
+  next_cursor: string | null
+}
+
+/** Cursor paging params shared by both session routes. */
+export interface PageParams {
+  /** Omitted by callers here on purpose — the gateway owns the default (30). */
+  limit?: number
+  /** An opaque `next_cursor` from a previous page. Never construct one. */
+  cursor?: string
+}
+
+/** Shared query building for the two cursor-paged session routes. */
+function pageQuery(params: PageParams): string {
+  const query = new URLSearchParams()
+  if (params.limit != null) query.set('limit', String(params.limit))
+  if (params.cursor) query.set('cursor', params.cursor)
+  const qs = query.toString()
+  return qs ? `?${qs}` : ''
 }
 
 // Tool-calling metadata. The gateway runs the tool loop server-side; these types
@@ -452,15 +493,30 @@ export async function openChatStream(
   return { sessionId, events: events() }
 }
 
-/** Conversation sidebar list (newest-updated first). */
-export async function listSessions(signal?: AbortSignal): Promise<SessionSummary[]> {
-  return request<SessionSummary[]>('/v1/sessions', { method: 'GET' }, signal)
+/**
+ * One page of the conversation sidebar list (newest-updated first). Pass the
+ * previous page's `next_cursor` to append the next page. A 400 means OUR cursor
+ * is stale or malformed, not that the user's data is wrong — callers recover by
+ * dropping the cursor and refetching page one.
+ */
+export async function listSessions(
+  params: PageParams = {},
+  signal?: AbortSignal,
+): Promise<SessionListPage> {
+  return request<SessionListPage>(`/v1/sessions${pageQuery(params)}`, { method: 'GET' }, signal)
 }
 
-/** Full ordered thread for one conversation. 404 = not yours / gone. */
-export async function getSession(id: string, signal?: AbortSignal): Promise<SessionDetail> {
+/**
+ * One page of a conversation, newest page first. 404 = not yours / gone; 400 =
+ * our own cursor is bad (reset to page one, do not report it as a data error).
+ */
+export async function getSession(
+  id: string,
+  params: PageParams = {},
+  signal?: AbortSignal,
+): Promise<SessionDetail> {
   return request<SessionDetail>(
-    `/v1/sessions/${encodeURIComponent(id)}`,
+    `/v1/sessions/${encodeURIComponent(id)}${pageQuery(params)}`,
     { method: 'GET' },
     signal,
   )

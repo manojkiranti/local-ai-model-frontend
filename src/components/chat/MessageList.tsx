@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { ArrowRight, FileSpreadsheet, Globe2, Users, Wrench } from 'lucide-react'
+import { ArrowRight, ArrowUp, FileSpreadsheet, Globe2, Loader2, Users, Wrench } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
 import { BurstLogo } from '@/components/brand/BurstLogo'
 import { APP_NAME } from '@/lib/branding'
@@ -37,15 +37,32 @@ interface MessageListProps {
   onExample: (text: string) => void
   canSend: boolean
   onRetry?: (assistantId: string, text: string) => void
+  /** True while the open conversation has an older page left to fetch. */
+  hasOlder?: boolean
+  loadingOlder?: boolean
+  onLoadOlder?: () => void
 }
 
-export function MessageList({ messages, onExample, canSend, onRetry }: MessageListProps) {
+export function MessageList({
+  messages,
+  onExample,
+  canSend,
+  onRetry,
+  hasOlder = false,
+  loadingOlder = false,
+  onLoadOlder,
+}: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
-  const lastContentLen = messages[messages.length - 1]?.content.length ?? 0
+  const last = messages[messages.length - 1]
+  const lastId = last?.id ?? null
+  const lastContentLen = last?.content.length ?? 0
 
+  // Keyed on the LAST message, never on `messages.length`: loading an older
+  // page changes the length, and scrolling to the bottom for that would yank
+  // the reader away from the history they just asked to see.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [messages.length, lastContentLen])
+  }, [lastId, lastContentLen])
 
   if (messages.length === 0) {
     return (
@@ -94,6 +111,23 @@ export function MessageList({ messages, onExample, canSend, onRetry }: MessageLi
 
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-7 px-6 py-7">
+      {hasOlder && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={onLoadOlder}
+            disabled={loadingOlder}
+            className="flex items-center gap-1.5 rounded-full border bg-card px-3.5 py-1.5 text-[12px] text-muted-foreground shadow-sm transition-colors hover:border-primary/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loadingOlder ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <ArrowUp className="size-3.5" />
+            )}
+            {loadingOlder ? 'Loading older messages…' : 'Load older messages'}
+          </button>
+        </div>
+      )}
       {messages.map((m) => (
         <MessageBubble
           key={m.id}

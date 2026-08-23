@@ -94,6 +94,9 @@ export function Workspace() {
             email={user?.email ?? ''}
             role={user?.role ?? 'member'}
             onLogout={logout}
+            hasMoreSessions={chat.hasMoreSessions}
+            loadingMoreSessions={chat.loadingMoreSessions}
+            onLoadMoreSessions={chat.loadMoreSessions}
           />
         )}
 
@@ -127,6 +130,9 @@ export function Workspace() {
                     departmentsError={departmentState.error}
                     activeDepartment={activeDepartment}
                     onDepartmentChange={changeDepartment}
+                    hasOlderMessages={chat.hasOlderMessages}
+                    loadingOlder={chat.loadingOlder}
+                    onLoadOlder={chat.loadOlderMessages}
                   />
                 }
               />

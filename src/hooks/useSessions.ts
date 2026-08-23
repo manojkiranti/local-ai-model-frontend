@@ -128,6 +128,13 @@ export function useSessions() {
   const [messages, setMessages] = useState<UIMessage[]>([])
   const [loadingThread, setLoadingThread] = useState(false)
   const [sending, setSending] = useState(false)
+  // Cursor paging. Both cursors are OPAQUE server tokens, only ever echoed
+  // back; `null` means "no further page", which is also how the UI knows to
+  // stop offering to load one.
+  const [sessionsCursor, setSessionsCursor] = useState<string | null>(null)
+  const [loadingMoreSessions, setLoadingMoreSessions] = useState(false)
+  const [threadCursor, setThreadCursor] = useState<string | null>(null)
+  const [loadingOlder, setLoadingOlder] = useState(false)
 
   const controllerRef = useRef<AbortController | null>(null)
   const activeIdRef = useRef<string | null>(null)
@@ -135,13 +142,48 @@ export function useSessions() {
   // eslint-disable-next-line react-hooks/refs -- latest-value ref, intentionally synced during render
   activeIdRef.current = activeId
 
+  /**
+   * Reload the FIRST page and discard everything paged in after it. Called on
+   * mount and whenever the list is invalidated — a new session, a deletion, or
+   * a completed turn, which bumps `updated_at` and so reorders the list on the
+   * server. Keeping accumulated pages across that would mean either duplicated
+   * rows or re-sorting a list the server owns, so the sidebar resets instead.
+   */
   const refreshSessions = useCallback(async () => {
     try {
-      setSessions(await listSessions())
+      const page = await listSessions()
+      setSessions(page.items)
+      setSessionsCursor(page.next_cursor)
     } catch {
       // 401 is handled globally by the client; ignore transient list failures.
     }
   }, [])
+
+  /**
+   * Append the next page of sidebar rows. A 400 means OUR cursor is stale or
+   * malformed — not a problem with the user's data — so recover silently by
+   * resetting to page one rather than surfacing an error.
+   */
+  const loadMoreSessions = useCallback(async () => {
+    if (!sessionsCursor || loadingMoreSessions) return
+    setLoadingMoreSessions(true)
+    try {
+      const page = await listSessions({ cursor: sessionsCursor })
+      setSessions((prev) => {
+        const seen = new Set(prev.map((session) => session.id))
+        return [...prev, ...page.items.filter((session) => !seen.has(session.id))]
+      })
+      setSessionsCursor(page.next_cursor)
+    } catch (e) {
+      if (e instanceof GatewayError && e.status === 400) {
+        setSessionsCursor(null)
+        await refreshSessions()
+      }
+      // Any other failure leaves the cursor in place so the user can retry.
+    } finally {
+      setLoadingMoreSessions(false)
+    }
+  }, [sessionsCursor, loadingMoreSessions, refreshSessions])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- load session list on mount
@@ -160,18 +202,28 @@ export function useSessions() {
     activeAttachmentNameRef.current = null
     setActiveId(null)
     setMessages([])
+    setThreadCursor(null)
   }, [])
 
   const selectSession = useCallback(async (id: string) => {
     if (id === activeIdRef.current) return
     controllerRef.current?.abort()
     activeAttachmentNameRef.current = null
+    // Set the ref eagerly, exactly as runTurn's `adopt` does: it is otherwise
+    // only synced during render, and a thread page that resolves before React
+    // re-renders would fail its own "still the active session" guard below.
+    activeIdRef.current = id
     setActiveId(id)
     setMessages([])
+    setThreadCursor(null)
     setLoadingThread(true)
     try {
+      // One page — the NEWEST messages. `next_cursor` walks backwards from here.
       const detail = await getSession(id)
-      if (activeIdRef.current === id) setMessages(detail.messages.map(threadToUI))
+      if (activeIdRef.current === id) {
+        setMessages(detail.messages.map(threadToUI))
+        setThreadCursor(detail.next_cursor)
+      }
     } catch (e) {
       if (e instanceof GatewayError && e.status === 404) {
         setSessions((prev) => prev.filter((s) => s.id !== id))
@@ -185,6 +237,52 @@ export function useSessions() {
     }
   }, [])
 
+  /**
+   * Prepend the page of messages OLDER than the ones on screen. Each page is
+   * already ascending by `seq`, so prepending a whole page keeps the thread in
+   * order without the client sorting anything.
+   *
+   * A 400 means our own cursor went bad: reset to page one. A 404 keeps the
+   * behaviour it has always had — the conversation is gone or was never yours.
+   */
+  const loadOlderMessages = useCallback(async () => {
+    const id = activeIdRef.current
+    if (!id || !threadCursor || loadingOlder) return
+    setLoadingOlder(true)
+    try {
+      const detail = await getSession(id, { cursor: threadCursor })
+      // The user may have switched conversations while this was in flight.
+      if (activeIdRef.current !== id) return
+      const older = detail.messages.map(threadToUI)
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => m.id))
+        return [...older.filter((m) => !seen.has(m.id)), ...prev]
+      })
+      setThreadCursor(detail.next_cursor)
+    } catch (e) {
+      if (activeIdRef.current !== id) return
+      if (e instanceof GatewayError && e.status === 400) {
+        // Our cursor is stale — start the thread over from its newest page.
+        setThreadCursor(null)
+        const detail = await getSession(id).catch(() => null)
+        if (detail && activeIdRef.current === id) {
+          setMessages(detail.messages.map(threadToUI))
+          setThreadCursor(detail.next_cursor)
+        }
+      } else if (e instanceof GatewayError && e.status === 404) {
+        setSessions((prev) => prev.filter((session) => session.id !== id))
+        if (activeIdRef.current === id) {
+          setActiveId(null)
+          setMessages([])
+          setThreadCursor(null)
+        }
+      }
+      // Anything else leaves the cursor in place so the user can retry.
+    } finally {
+      setLoadingOlder(false)
+    }
+  }, [threadCursor, loadingOlder])
+
   const removeSession = useCallback(async (id: string) => {
     try {
       await apiDeleteSession(id)
@@ -197,8 +295,11 @@ export function useSessions() {
       controllerRef.current?.abort()
       setActiveId(null)
       setMessages([])
+      setThreadCursor(null)
     }
-  }, [])
+    // A deletion invalidates every page boundary after it — reset to page one.
+    void refreshSessions()
+  }, [refreshSessions])
 
   /** Execute one turn against `assistantId`, reused by send() and retry(). */
   const runTurn = useCallback(
@@ -443,5 +544,13 @@ export function useSessions() {
     send,
     retry,
     stop,
+    /** Non-null while another page of sidebar rows exists. */
+    hasMoreSessions: sessionsCursor !== null,
+    loadingMoreSessions,
+    loadMoreSessions,
+    /** True while older messages exist in the open conversation. */
+    hasOlderMessages: threadCursor !== null,
+    loadingOlder,
+    loadOlderMessages,
   }
 }

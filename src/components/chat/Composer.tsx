@@ -10,6 +10,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
+import { CHAT_MESSAGE_MAX_LENGTH } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import type { Attachment } from '@/hooks/useAttachment'
 import {
@@ -50,6 +51,10 @@ export function Composer({
   onClearAttachment,
 }: ComposerProps) {
   const [text, setText] = useState('')
+  // The gateway rejects a longer message with a 422, so the send is blocked
+  // here instead — the user keeps their text and sees why.
+  const overLimit = text.length > CHAT_MESSAGE_MAX_LENGTH
+  const remaining = CHAT_MESSAGE_MAX_LENGTH - text.length
   const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
@@ -72,7 +77,7 @@ export function Composer({
 
   const submit = () => {
     const trimmed = text.trim()
-    if (!trimmed || disabled || streaming || attachment?.status === 'uploading') return
+    if (!trimmed || disabled || streaming || overLimit || attachment?.status === 'uploading') return
     onSend(trimmed)
     setText('')
   }
@@ -225,6 +230,7 @@ export function Composer({
             rows={1}
             value={text}
             disabled={disabled}
+            aria-invalid={overLimit}
             placeholder={
               disabled ? 'Gateway offline — reconnect to send' : (placeholder ?? 'Send a message…')
             }
@@ -250,7 +256,9 @@ export function Composer({
             <button
               type="button"
               onClick={submit}
-              disabled={disabled || !text.trim() || attachment?.status === 'uploading'}
+              disabled={
+                disabled || !text.trim() || overLimit || attachment?.status === 'uploading'
+              }
               aria-label="Send message"
               className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-[filter,opacity] hover:brightness-110 disabled:opacity-40"
             >
@@ -258,10 +266,19 @@ export function Composer({
             </button>
           )}
         </div>
-        <p className="mt-2.5 text-center font-mono text-[10px] text-muted-foreground">
+        <p
+          className={cn(
+            'mt-2.5 text-center font-mono text-[10px]',
+            overLimit ? 'text-destructive' : 'text-muted-foreground',
+          )}
+        >
           {disabled
             ? 'Composer disabled while the gateway is unreachable'
-            : 'Enter to send · Shift+Enter for a new line'}
+            : overLimit
+              ? `Too long by ${(-remaining).toLocaleString()} characters — the limit is ${CHAT_MESSAGE_MAX_LENGTH.toLocaleString()}`
+              : remaining <= 500
+                ? `${remaining.toLocaleString()} characters left`
+                : 'Enter to send · Shift+Enter for a new line'}
         </p>
       </div>
 

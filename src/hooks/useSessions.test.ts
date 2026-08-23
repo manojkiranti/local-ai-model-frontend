@@ -5,18 +5,19 @@ vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
-    listSessions: vi.fn().mockResolvedValue([]),
+    listSessions: vi.fn().mockResolvedValue({ items: [], next_cursor: null }),
     getSession: vi.fn(),
     deleteSession: vi.fn().mockResolvedValue(undefined),
     openChatStream: vi.fn(),
   }
 })
 
-import { GatewayError, getSession, openChatStream } from '@/lib/api'
+import { GatewayError, getSession, listSessions, openChatStream } from '@/lib/api'
 import { useSessions } from '@/hooks/useSessions'
 
 const mockOpen = vi.mocked(openChatStream)
 const mockGetSession = vi.mocked(getSession)
+const mockListSessions = vi.mocked(listSessions)
 
 type OpenResult = Awaited<ReturnType<typeof openChatStream>>
 
@@ -554,6 +555,7 @@ describe('useSessions source citations', () => {
           created_at: '2026-08-19T00:00:01Z',
         },
       ],
+      next_cursor: null,
     }
     const { result } = renderHook(() => useSessions())
     act(() => {
@@ -581,5 +583,194 @@ describe('useSessions source citations', () => {
     })
     await waitFor(() => expect(result.current.sending).toBe(false))
     expect(result.current.messages.find((m) => m.id === assistant.id)?.sources).toBeNull()
+  })
+})
+
+// --------------------------------------------------------------------------- //
+// Cursor paging. Both lists arrive one page at a time: the sidebar pages
+// FORWARD (append), a thread pages BACKWARDS from its newest page (prepend).
+// --------------------------------------------------------------------------- //
+function summary(id: string) {
+  return {
+    id,
+    title: id,
+    created_at: '2026-08-22T00:00:00Z',
+    updated_at: '2026-08-22T00:00:00Z',
+    message_count: 2,
+  }
+}
+
+function threadMessage(id: string, seq: number, role: 'user' | 'assistant') {
+  return {
+    id,
+    seq,
+    role,
+    content: id,
+    trace: null,
+    sources: null,
+    model: null,
+    created_at: '2026-08-22T00:00:00Z',
+  }
+}
+
+function threadPage(messages: ReturnType<typeof threadMessage>[], nextCursor: string | null) {
+  return {
+    id: 'sess-p',
+    title: 'Paged',
+    created_at: '2026-08-22T00:00:00Z',
+    updated_at: '2026-08-22T00:00:00Z',
+    messages,
+    next_cursor: nextCursor,
+  } as Awaited<ReturnType<typeof getSession>>
+}
+
+describe('useSessions cursor paging', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockListSessions.mockResolvedValue({ items: [], next_cursor: null })
+  })
+
+  it('sends no limit and reports whether another page exists', async () => {
+    mockListSessions.mockResolvedValue({ items: [summary('s1')], next_cursor: 'c1' })
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1))
+    // The gateway owns the page size: page one carries no params at all.
+    expect(mockListSessions).toHaveBeenCalledWith()
+    expect(result.current.hasMoreSessions).toBe(true)
+  })
+
+  it('appends the next page of sidebar rows and stops at a null cursor', async () => {
+    mockListSessions.mockResolvedValueOnce({ items: [summary('s1')], next_cursor: 'c1' })
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1))
+
+    mockListSessions.mockResolvedValueOnce({ items: [summary('s2')], next_cursor: null })
+    await act(async () => {
+      await result.current.loadMoreSessions()
+    })
+    expect(mockListSessions).toHaveBeenLastCalledWith({ cursor: 'c1' })
+    expect(result.current.sessions.map((session) => session.id)).toEqual(['s1', 's2'])
+    expect(result.current.hasMoreSessions).toBe(false)
+  })
+
+  it('does not request a further page once the cursor is exhausted', async () => {
+    mockListSessions.mockResolvedValue({ items: [summary('s1')], next_cursor: null })
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1))
+    await act(async () => {
+      await result.current.loadMoreSessions()
+    })
+    expect(mockListSessions).toHaveBeenCalledTimes(1)
+  })
+
+  // A 400 says OUR cursor is bad, not that the user's data is. Recover by
+  // resetting to page one — never by surfacing an error.
+  it('resets the sidebar to page one when a cursor is rejected with 400', async () => {
+    mockListSessions.mockResolvedValueOnce({ items: [summary('s1')], next_cursor: 'stale' })
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1))
+
+    mockListSessions.mockRejectedValueOnce(new GatewayError(400, 'Invalid cursor'))
+    mockListSessions.mockResolvedValueOnce({ items: [summary('s9')], next_cursor: null })
+    await act(async () => {
+      await result.current.loadMoreSessions()
+    })
+    expect(mockListSessions).toHaveBeenLastCalledWith()
+    expect(result.current.sessions.map((session) => session.id)).toEqual(['s9'])
+    expect(result.current.hasMoreSessions).toBe(false)
+  })
+
+  it('opens a thread on its newest page and prepends older pages in order', async () => {
+    mockGetSession.mockResolvedValueOnce(
+      threadPage([threadMessage('m3', 3, 'user'), threadMessage('m4', 4, 'assistant')], 'older'),
+    )
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      await result.current.selectSession('sess-p')
+    })
+    expect(mockGetSession).toHaveBeenCalledWith('sess-p')
+    expect(result.current.messages.map((m) => m.id)).toEqual(['m3', 'm4'])
+    expect(result.current.hasOlderMessages).toBe(true)
+
+    mockGetSession.mockResolvedValueOnce(
+      threadPage([threadMessage('m1', 1, 'user'), threadMessage('m2', 2, 'assistant')], null),
+    )
+    await act(async () => {
+      await result.current.loadOlderMessages()
+    })
+    expect(mockGetSession).toHaveBeenLastCalledWith('sess-p', { cursor: 'older' })
+    // Prepending a whole ascending page keeps global seq order with no sorting.
+    expect(result.current.messages.map((m) => m.id)).toEqual(['m1', 'm2', 'm3', 'm4'])
+    expect(result.current.hasOlderMessages).toBe(false)
+  })
+
+  it('restarts a thread from its newest page when its cursor is rejected with 400', async () => {
+    mockGetSession.mockResolvedValueOnce(threadPage([threadMessage('m3', 3, 'user')], 'stale'))
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      await result.current.selectSession('sess-p')
+    })
+
+    mockGetSession.mockRejectedValueOnce(new GatewayError(400, 'Invalid cursor'))
+    mockGetSession.mockResolvedValueOnce(threadPage([threadMessage('m5', 5, 'user')], null))
+    await act(async () => {
+      await result.current.loadOlderMessages()
+    })
+    expect(result.current.messages.map((m) => m.id)).toEqual(['m5'])
+    expect(result.current.hasOlderMessages).toBe(false)
+  })
+
+  // 404 keeps the behaviour it always had: the conversation is gone.
+  it('drops the conversation when paging it returns 404', async () => {
+    mockListSessions.mockResolvedValue({ items: [summary('sess-p')], next_cursor: null })
+    mockGetSession.mockResolvedValueOnce(threadPage([threadMessage('m3', 3, 'user')], 'older'))
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1))
+    await act(async () => {
+      await result.current.selectSession('sess-p')
+    })
+
+    mockGetSession.mockRejectedValueOnce(new GatewayError(404, 'Not found'))
+    await act(async () => {
+      await result.current.loadOlderMessages()
+    })
+    expect(result.current.activeId).toBeNull()
+    expect(result.current.messages).toEqual([])
+    expect(result.current.sessions).toEqual([])
+  })
+
+  // A turn bumps updated_at and reorders the list server-side, so accumulated
+  // pages are dropped rather than merged into an order the client would invent.
+  it('resets accumulated sidebar pages after a completed turn', async () => {
+    mockListSessions.mockResolvedValueOnce({ items: [summary('s1')], next_cursor: 'c1' })
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1))
+
+    mockListSessions.mockResolvedValueOnce({ items: [summary('s2')], next_cursor: null })
+    await act(async () => {
+      await result.current.loadMoreSessions()
+    })
+    expect(result.current.sessions).toHaveLength(2)
+
+    mockOpen.mockResolvedValue(doneStream())
+    mockListSessions.mockResolvedValue({ items: [summary('s2')], next_cursor: 'fresh' })
+    await act(async () => {
+      result.current.send('hello')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    await waitFor(() => expect(result.current.sessions.map((s) => s.id)).toEqual(['s2']))
+    expect(result.current.hasMoreSessions).toBe(true)
+  })
+
+  it('resets accumulated sidebar pages after a deletion', async () => {
+    mockListSessions.mockResolvedValueOnce({ items: [summary('s1')], next_cursor: 'c1' })
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1))
+
+    mockListSessions.mockResolvedValue({ items: [summary('s7')], next_cursor: null })
+    await act(async () => {
+      await result.current.removeSession('s1')
+    })
+    expect(result.current.sessions.map((s) => s.id)).toEqual(['s7'])
   })
 })

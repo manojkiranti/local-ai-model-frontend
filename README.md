@@ -35,8 +35,8 @@ Authoritative live spec: `http://localhost:8000/openapi.json` (Swagger at
 | GET  | `/users` | bearer + admin | Directory `{total, limit, offset, items:[UserOut]}`. Supports **`q`** (case-insensitive email substring; LIKE wildcards are literal), **`limit`** (≤ 200), and **`offset`**. Used by the Users screen for search + pagination, and unfiltered by the department-grant picker. |
 | PATCH | `/users/{id}` | bearer + admin | Activate / deactivate a user — body is **`{is_active}`** only (`role` is **not** patchable and is refused). Deactivation takes effect on the holder's next request (the user row is re-read per request). **409** refuses deactivating **your own account** or the **last active admin**; render it verbatim — it is a policy refusal, not an expired session. Reactivation is always allowed. |
 | POST | `/v1/chat` | bearer | **The one endpoint** — stateful, tool-capable, streaming. `{session_id?, message, department?, model?, stream?, options?, file_ids?}`. Send `department` only when creating a department-bound session; continuing turns send the `session_id` and the server remembers the binding. `stream:true` → **NDJSON of typed events** (`token` / `tool_call` / `tool_result` / `done`, **not** SSE) with the new session id in the **`X-Session-Id` response header**. Both shapes carry **`sources`** — the department documents the answer was grounded in — and on a stream it arrives **only on `done`** (citations resolve against the final answer's `[N]` markers). `null` means no corpus was searched; a general chat is always `null`. Not suppressed by `EXPOSE_TRACE`. |
-| GET  | `/v1/sessions` | bearer | Sidebar list `[{id, title, created_at, updated_at, message_count}]`, newest-updated first. |
-| GET  | `/v1/sessions/{id}` | bearer | Full thread `{…, messages:[{id, seq, role, content, trace, sources, model, created_at}]}`. Assistant rows whose turn called tools carry non-null `trace`; rows grounded in the corpus replay `sources` (its `download_url` is recomputed on read). 404 = gone. |
+| GET  | `/v1/sessions` | bearer | Sidebar list, **cursor-paged**: `{items:[{id, title, created_at, updated_at, message_count}], next_cursor}`, newest-updated first. `?limit=` (default 30, max 100) and `?cursor=`. `next_cursor` is **opaque** — echo it back verbatim, never parse, build, or persist one; `null` means no further page. A malformed cursor is **400**. |
+| GET  | `/v1/sessions/{id}` | bearer | **One page** of a thread — `{…, messages:[{id, seq, role, content, trace, sources, model, created_at}], next_cursor}`. Not the whole conversation: it is the **newest** `limit` messages, still **ascending by `seq`**, so `next_cursor` walks **backwards** into older history. Same `?limit=`/`?cursor=` and the same 400 on a bad cursor. Assistant rows whose turn called tools carry non-null `trace`; rows grounded in the corpus replay `sources` (its `download_url` is recomputed on read). 404 = gone. |
 | DELETE | `/v1/sessions/{id}` | bearer | Delete a conversation → 204. |
 | GET  | `/v1/tools` | bearer | Tools the model can use. |
 | POST | `/v1/files` | bearer | Attach a file to a chat turn — `multipart/form-data`, field **`file`** → 201 `{id, filename, media_type, size, source, summary}`. Accepts `.xlsx .csv .pdf .docx .txt .md .json` and images `.png .jpg .jpeg .webp .tif .tiff .bmp`. `summary` is per kind: spreadsheet (`total_rows`, `sheets`), document (`pages`, `text_pages`, `lines`, `chars`), or image (`width`, `height`, `frames`). Errors are `{"detail": …}`: 400 bad extension / not really an image / decoded-pixel bomb / empty, 413 over `upload_max_bytes` (10 MB by default, deployment-configurable). |
@@ -64,7 +64,9 @@ unavailable"`, otherwise it surfaces `detail`.
 - **Server-owned conversations** — the client no longer holds chat state.
   `useSessions` drives a **persisted sidebar** (`GET /v1/sessions`, new-chat /
   select / delete) and loads each **thread** from `GET /v1/sessions/{id}`, so
-  history survives reloads. A turn sends only the new message (`{session_id?,
+  history survives reloads. Both are **cursor-paged** (see *Chat history paging*
+  below): the sidebar auto-loads the next page as you scroll, and a thread opens
+  on its newest page with a **Load older messages** control above it. A turn sends only the new message (`{session_id?,
   message}`); a new conversation adopts the server's id (from the response body,
   or the `X-Session-Id` header when streaming).
 - **One streaming turn endpoint** — every message goes to `/v1/chat` with
@@ -301,6 +303,86 @@ src/
    screen, and review monthly: check whether any counter key rendered as an
    unlabelled fallback (a stage added one), and whether the bounds offered still
    match `RunTriggerIn`.
+
+## Chat history paging — and a breaking deploy pair
+
+`GET /v1/sessions` and `GET /v1/sessions/{id}` are cursor-paged as of the
+gateway's `feat/lazy-load` branch (its own record is
+`docs/superpowers/plans/2026-08-22-chat-history-lazy-loading-PROGRESS.md`).
+
+**This is a breaking change in BOTH directions, so the two branches ship
+together.** Neither half degrades gracefully, and both failures look like "the
+user has no conversations" rather than like a version mismatch:
+
+- **New frontend, old gateway** — the gateway returns a bare `SessionSummary[]`,
+  the client reads `.items` off an array, gets `undefined`, and the sidebar shows
+  nothing. A thread reads `.messages` off the old (correct) shape and works, so
+  the breakage looks partial and mystifying.
+- **Old frontend, new gateway** — the gateway returns `{items, next_cursor}`, the
+  client treats the object as an array, and again renders an empty sidebar.
+
+Same coupling as `feat/roles` ↔ `feat/role` before it. Deploy them as a pair.
+
+What the client does and does not decide:
+
+- **Never sends `limit`.** The gateway owns the page size (30 for both routes),
+  so it can be retuned without a frontend deploy.
+- **Cursors are opaque.** `next_cursor` is echoed back verbatim and never parsed,
+  constructed, or persisted — the same rule as a citation's `download_url`.
+- **A thread pages backwards.** Each page is ascending by `seq`, so an older page
+  is prepended whole and the client sorts nothing.
+- **400 means our cursor is bad, not the user's data.** Both loaders recover
+  silently by resetting to page one; nothing is surfaced as an error. This is
+  distinct from **404** on the thread route, which still means the conversation is
+  gone or was never yours and clears it from the sidebar.
+- **The sidebar resets to page one** when a session is created, deleted, or a turn
+  completes — a turn bumps `updated_at` and reorders the list server-side, so
+  accumulated pages would either duplicate rows or force the client to invent an
+  order the server owns.
+
+**Known limitation.** The sidebar's search box filters only the pages already
+loaded, because `/v1/sessions` has no search parameter. The empty state says so
+("No loaded chats match … Load more to search further back") rather than implying
+the whole history was searched. Server-side search would be a gateway change.
+
+`POST /v1/chat`'s `message` is capped at **8000 characters** (`max_length`, 422
+over it). The composer blocks the send at the limit and shows how far over you
+are, so a long message is never lost to a rejected round trip.
+
+## Evaluation & Improvement — chat history paging
+
+1. **Success metric.** Time to first render of the chat sidebar and of an opened
+   conversation, for the accounts with the longest histories — the reason the
+   gateway paged these routes at all. The proxy available in-app is payload size:
+   a first page is bounded at 30 rows regardless of account age, where it was
+   previously unbounded. The correctness half of the metric is stricter and is
+   what the tests enforce: **zero** cases where paging loses a message, reorders a
+   thread, duplicates a sidebar row, or scrolls a reader away from the history
+   they just asked to see.
+2. **Eval.** The labelled set is the 9 paging cases in
+   `src/hooks/useSessions.test.ts`, the 4 cursor cases in `src/lib/api.test.ts`,
+   and the rendered cases in `src/components/chat/MessageList.test.tsx` (5),
+   `src/components/chat/Composer.test.tsx` (5), and
+   `src/components/layout/Sidebar.test.tsx` (4). They fix the response shapes the
+   gateway actually returns and score behaviour against them, covering the failure
+   modes that make paging wrong rather than merely slow: a `limit` sent from the
+   client, a cursor requested after exhaustion, a 400 surfaced as a user-facing
+   error instead of resetting, a 404 conflated with that 400, an older page
+   appended instead of prepended, a thread reordered by the client, sidebar pages
+   left stale after a turn or a deletion, an auto-scroll fired by a prepend, and
+   an over-limit message sent to be rejected with a 422.
+   **Current pass rate: see `npm run test` below** — the whole suite is green.
+   Not yet exercised against a live gateway.
+3. **Feedback capture.** The screen captures none itself. The durable signals are
+   the gateway's: the ratio of page-two-plus requests to session-list requests
+   (how often anyone pages at all, which is what tells you whether 30 is the right
+   default), and 400s on these routes, each of which is a stale cursor the client
+   should have reset instead of sending.
+4. **Review loop.** Re-check on any change to either session route's response
+   shape or page size, and whenever the gateway's default `limit` moves. The
+   standing question at each review: is the page size still right, or are readers
+   routinely clicking "Load older messages" more than once to reach what they came
+   for?
 
 ## Evaluation & Improvement — chat source citations
 

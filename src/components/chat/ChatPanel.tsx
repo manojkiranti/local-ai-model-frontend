@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react'
 import { AlertTriangle, Loader2, Wrench } from 'lucide-react'
 import type { AttachmentDescriptor, UIMessage } from '@/hooks/useSessions'
 import type { Department } from '@/lib/api'
@@ -24,6 +25,9 @@ interface ChatPanelProps {
   departmentsError: string | null
   activeDepartment: string | null
   onDepartmentChange: (code: string | null) => void
+  hasOlderMessages: boolean
+  loadingOlder: boolean
+  onLoadOlder: () => void
 }
 
 export function ChatPanel({
@@ -39,8 +43,29 @@ export function ChatPanel({
   departmentsError,
   activeDepartment,
   onDepartmentChange,
+  hasOlderMessages,
+  loadingOlder,
+  onLoadOlder,
 }: ChatPanelProps) {
   const { attachment, pick, clear } = useAttachment()
+  const scrollRef = useRef<HTMLDivElement>(null)
+  // Distance from the bottom, captured before an older page is prepended.
+  const anchorRef = useRef<number | null>(null)
+
+  const handleLoadOlder = () => {
+    const el = scrollRef.current
+    anchorRef.current = el ? el.scrollHeight - el.scrollTop : null
+    onLoadOlder()
+  }
+
+  // Prepending grows the content above the viewport, so restoring the captured
+  // distance-from-bottom keeps the message the reader was looking at still.
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el || anchorRef.current === null) return
+    el.scrollTop = el.scrollHeight - anchorRef.current
+    anchorRef.current = null
+  }, [messages.length])
 
   const handleSend = (text: string) => {
     const descriptor =
@@ -88,7 +113,7 @@ export function ChatPanel({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {loadingThread ? (
           <div className="grid h-full place-items-center">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -99,6 +124,9 @@ export function ChatPanel({
             onExample={handleSend}
             canSend={canSend}
             onRetry={handleRetry}
+            hasOlder={hasOlderMessages}
+            loadingOlder={loadingOlder}
+            onLoadOlder={handleLoadOlder}
           />
         )}
       </div>

@@ -10,8 +10,10 @@ import {
   listDepartmentDocuments,
   listDepartments,
   listFiles,
+  listSessions,
   listUsers,
   login,
+  getSession,
   readNdjson,
   register,
   updateUser,
@@ -576,5 +578,79 @@ describe('admin user administration', () => {
     })
     expect(onUnauthorized).not.toHaveBeenCalled()
     expect(getToken()).toBe('tok.users')
+  })
+})
+
+// --------------------------------------------------------------------------- //
+// Cursor-paged session routes. `next_cursor` is opaque: the client only ever
+// echoes one back, so these tests pin the query construction and the page shape
+// rather than any cursor content.
+// --------------------------------------------------------------------------- //
+describe('cursor-paged session routes', () => {
+  beforeEach(() => setToken('tok.pages'))
+  afterEach(() => {
+    vi.restoreAllMocks()
+    clearToken()
+  })
+
+  it('listSessions() sends no limit, letting the gateway own the default', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ items: [], next_cursor: null }))
+    await listSessions()
+    expect(String(fetchMock.mock.calls[0][0])).toBe('http://localhost:8000/v1/sessions')
+  })
+
+  it('listSessions() returns the page and echoes an opaque cursor verbatim', async () => {
+    const cursor = 'eyJzIjoiMjAyNi0wOC0yMiJ9'
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        items: [
+          {
+            id: 's1',
+            title: 'First',
+            created_at: '2026-08-22T00:00:00Z',
+            updated_at: '2026-08-22T00:00:00Z',
+            message_count: 2,
+          },
+        ],
+        next_cursor: 'next.token',
+      }),
+    )
+    const page = await listSessions({ cursor })
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      `http://localhost:8000/v1/sessions?cursor=${encodeURIComponent(cursor)}`,
+    )
+    expect(page.items).toHaveLength(1)
+    expect(page.next_cursor).toBe('next.token')
+  })
+
+  it('getSession() pages one thread and reports the older-page cursor', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        id: 's1',
+        title: 'First',
+        created_at: '2026-08-22T00:00:00Z',
+        updated_at: '2026-08-22T00:00:00Z',
+        messages: [],
+        next_cursor: 'older.page',
+      }),
+    )
+    const detail = await getSession('s1', { cursor: 'c1' })
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      'http://localhost:8000/v1/sessions/s1?cursor=c1',
+    )
+    expect(detail.next_cursor).toBe('older.page')
+  })
+
+  it('a malformed cursor rejects with 400 and never clears the session', async () => {
+    const onUnauthorized = vi.fn()
+    registerUnauthorizedHandler(onUnauthorized)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'Invalid cursor' }, 400),
+    )
+    await expect(listSessions({ cursor: 'garbage' })).rejects.toMatchObject({ status: 400 })
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    expect(getToken()).toBe('tok.pages')
   })
 })

@@ -117,8 +117,11 @@ export function AdminRagPage({
   // member. Absent keeps their level (and lands a new member on viewer).
   const [grantLevel, setGrantLevel] = useState<DepartmentRole | ''>('')
 
+  const [noticeTone, setNoticeTone] = useState<'success' | 'error'>('success')
+
   const announce = useCallback((message: string | null) => {
     setNotice(message)
+    setNoticeTone('success')
     setRefused(false)
   }, [])
 
@@ -128,6 +131,7 @@ export function AdminRagPage({
   // retry, and never let it reach the unauthorized handler (only 401 does).
   const report = useCallback((error: unknown) => {
     setNotice(ragError(error))
+    setNoticeTone('error')
     setRefused(error instanceof GatewayError && error.status === 403)
   }, [])
 
@@ -454,6 +458,7 @@ export function AdminRagPage({
       )
     } else {
       setGrantFailures(failures)
+      setNoticeTone('error')
       setRefused(anyForbidden)
       setNotice(
         granted > 0
@@ -515,35 +520,46 @@ export function AdminRagPage({
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-        <header className="mb-5 flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
+        <header className="mb-6 flex items-center gap-3">
+          <span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
             <ShieldCheck className="size-5" />
           </span>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">Department RAG</h1>
-            <p className="text-xs text-muted-foreground">Manage knowledge, ingestion, and member access.</p>
+            <h1 className="text-xl font-bold tracking-tight">Department RAG</h1>
+            <p className="text-sm text-muted-foreground">Manage knowledge, ingestion, and member access.</p>
           </div>
-          <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => void loadDepartment()}>
+          <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => void loadDepartment()} aria-label="Refresh">
             <RefreshCw className={loading ? 'animate-spin' : undefined} />
           </Button>
         </header>
 
         {notice && (
-          <div className="mb-4 flex items-start gap-2 rounded-lg border bg-card px-3 py-2 text-sm">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-primary" />
+          <div
+            className={cn(
+              'mb-5 flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-sm',
+              noticeTone === 'success'
+                ? 'border-emerald-600/25 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200'
+                : 'border-destructive/25 bg-destructive/5 text-destructive',
+            )}
+          >
+            {noticeTone === 'success' ? (
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            )}
             <div className="min-w-0">
-              <p>{notice}</p>
+              <p className="font-medium">{notice}</p>
               {refused && (
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <p className="mt-0.5 text-xs opacity-80">
                   Ask a global admin to make this change.
                 </p>
               )}
               {grantFailures.length > 0 && (
-                <ul className="mt-1 space-y-0.5 text-xs">
+                <ul className="mt-1.5 space-y-0.5 text-xs">
                   {grantFailures.map((failure) => (
                     <li key={failure.email} className="flex flex-wrap gap-x-1.5">
                       <span className="font-medium">{failure.email}</span>
-                      <span className="text-muted-foreground">{failure.detail}</span>
+                      <span className="opacity-80">{failure.detail}</span>
                     </li>
                   ))}
                 </ul>
@@ -555,9 +571,12 @@ export function AdminRagPage({
         {/* Creating a department is a global-admin route; an in-department owner
             does not reach it. */}
         {isAdmin && (
-          <section className="mb-5 rounded-xl border bg-card p-4">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
-              <Plus className="size-4 text-primary" /> Create department
+          <section className="mb-5 rounded-xl border bg-card p-5">
+            <div className="mb-3 flex items-center gap-2.5 text-sm font-semibold">
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                <Plus className="size-4" />
+              </span>
+              Create department
             </div>
             <form onSubmit={createNewDepartment} className="grid gap-3 sm:grid-cols-[180px_1fr_auto]">
               <Input
@@ -576,26 +595,33 @@ export function AdminRagPage({
           </section>
         )}
 
-        <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <div className="grid gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
           <aside className="h-fit rounded-xl border bg-card p-2">
-            <div className="px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Departments</div>
-            {departments.map((department) => (
-              <button
-                key={department.id}
-                type="button"
-                onClick={() => setSelectedCode(department.code)}
-                className={cn(
-                  'mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm',
-                  effectiveSelectedCode === department.code ? 'bg-primary/10 font-semibold' : 'hover:bg-muted',
-                )}
-              >
-                <Building2 className={cn('size-4', department.is_active ? 'text-primary' : 'text-muted-foreground')} />
-                <span className="min-w-0 flex-1 truncate">{department.name}</span>
-                {!department.is_active && <Badge variant="outline">Off</Badge>}
-              </button>
-            ))}
+            <div className="px-2.5 pb-2 pt-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Departments</div>
+            {departments.map((department) => {
+              const active = effectiveSelectedCode === department.code
+              return (
+                <button
+                  key={department.id}
+                  type="button"
+                  onClick={() => setSelectedCode(department.code)}
+                  className={cn(
+                    'mb-1 flex w-full items-center gap-2 rounded-lg border-l-2 px-2.5 py-2 text-left text-sm transition-colors',
+                    active
+                      ? 'border-l-primary bg-primary/10 font-semibold text-foreground'
+                      : 'border-l-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  <Building2 className={cn('size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
+                  <span className="min-w-0 flex-1 truncate">{department.name}</span>
+                  {!department.is_active && (
+                    <Badge variant="outline" className="text-muted-foreground">Off</Badge>
+                  )}
+                </button>
+              )
+            })}
             {!departments.length && (
-              <p className="px-2 py-4 text-xs text-muted-foreground">
+              <p className="px-2.5 py-4 text-xs text-muted-foreground">
                 {isAdmin ? 'Create the first department above.' : 'No departments are shared with you.'}
               </p>
             )}
@@ -611,17 +637,25 @@ export function AdminRagPage({
                 roles.
               </div>
             ) : (
-              <main className="space-y-5">
-                <section className="rounded-xl border bg-card p-4">
-                  <div className="mb-3 flex items-center gap-2">
-                    <h2 className="font-semibold">{selected.name}</h2>
-                    <Badge variant="outline" className="font-mono">{selected.code}</Badge>
-                    <Badge variant={selected.is_active ? 'default' : 'outline'} className={!selected.is_active ? 'text-destructive' : undefined}>{selected.is_active ? 'Active' : 'Disabled'}</Badge>
+              <main className="space-y-6">
+                <section className="rounded-xl border bg-card p-5">
+                  <div className="mb-3 flex flex-wrap items-center gap-2.5">
+                    <h2 className="text-lg font-bold tracking-tight">{selected.name}</h2>
+                    <Badge variant="outline" className="font-mono text-[11px]">{selected.code}</Badge>
+                    <Badge
+                      variant={selected.is_active ? 'default' : 'outline'}
+                      className={!selected.is_active ? 'text-destructive' : undefined}
+                    >
+                      {selected.is_active ? 'Active' : 'Disabled'}
+                    </Badge>
+                    <span className="ml-auto text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Your access: {levelLabel(selected.role)}
+                    </span>
                   </div>
                   {/* Renaming and enabling/disabling a department are global-admin
                       routes, so an in-department owner is not offered them. */}
                   {isAdmin && (
-                    <div className="flex flex-col gap-2 sm:flex-row">
+                    <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row">
                       <Input value={editName} onChange={(event) => setEditName(event.target.value)} maxLength={128} />
                       <Button variant="outline" onClick={() => void saveDepartment()} disabled={!editName.trim() || busy === 'save-department'}>Save name</Button>
                       <Button variant={selected.is_active ? 'destructive' : 'default'} onClick={() => void toggleDepartment()} disabled={busy === 'toggle-department'}>
@@ -631,12 +665,14 @@ export function AdminRagPage({
                   )}
                 </section>
 
-                <section className="rounded-xl border bg-card p-4">
-                  <div className="mb-4 flex items-center gap-2">
-                    <FileText className="size-4 text-primary" />
-                    <h2 className="font-semibold">Documents</h2>
+                <section className="rounded-xl border bg-card p-5">
+                  <div className="mb-4 flex items-center gap-2.5 border-b pb-3">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                      <FileText className="size-4" />
+                    </span>
+                    <h2 className="text-base font-semibold">Documents</h2>
                     {canCurate && (
-                      <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+                      <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
                         <input type="checkbox" checked={includeArchived} onChange={(event) => setIncludeArchived(event.target.checked)} />
                         Include archived
                       </label>
@@ -651,8 +687,8 @@ export function AdminRagPage({
                       corpus but is offered no ingestion. */}
                   {canCurate && selected.is_active && (
                     <div className="grid gap-4 xl:grid-cols-2">
-                      <form onSubmit={submitUpload} className="space-y-3 rounded-lg border p-3">
-                        <div className="flex items-center gap-2 text-sm font-semibold"><Upload className="size-4" /> Upload file</div>
+                      <form onSubmit={submitUpload} className="space-y-3 rounded-lg border bg-muted/30 p-3.5">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Upload className="size-4 text-primary" /> Upload file</div>
                         <Input value={uploadTitle} onChange={(event) => setUploadTitle(event.target.value)} placeholder="Document title" aria-label="Document title" required disabled={!selected.is_active} />
                         <Input
                           key={uploadInputKey}
@@ -673,8 +709,8 @@ export function AdminRagPage({
                         </Button>
                       </form>
 
-                      <form onSubmit={submitText} className="space-y-3 rounded-lg border p-3">
-                        <div className="flex items-center gap-2 text-sm font-semibold"><FileText className="size-4" /> Add typed text</div>
+                      <form onSubmit={submitText} className="space-y-3 rounded-lg border bg-muted/30 p-3.5">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><FileText className="size-4 text-primary" /> Add typed text</div>
                         <Input value={textTitle} onChange={(event) => setTextTitle(event.target.value)} placeholder="Document title" aria-label="Text title" required disabled={!selected.is_active} />
                         <Textarea value={textContent} onChange={(event) => setTextContent(event.target.value)} placeholder="Knowledge content" className="min-h-24" required disabled={!selected.is_active} />
                         <Button type="submit" size="sm" disabled={!selected.is_active || busy === 'text'}>
@@ -690,11 +726,25 @@ export function AdminRagPage({
                         const total = job.chunks_total ?? 0
                         const percent = total > 0 ? Math.min(100, Math.round((job.chunks_done / total) * 100)) : 0
                         const lost = unpollable[job.id]
+                        const failed = job.status === 'failed' || Boolean(lost)
+                        const succeeded = job.status === 'succeeded'
                         return (
-                          <div key={job.id} className="rounded-lg border px-3 py-2 text-xs">
+                          <div
+                            key={job.id}
+                            className={cn(
+                              'rounded-lg border px-3 py-2.5 text-xs',
+                              failed ? 'border-destructive/30 bg-destructive/5' : succeeded ? 'border-emerald-600/25 bg-emerald-50 dark:bg-emerald-950/20' : 'bg-muted/30',
+                            )}
+                          >
                             <div className="flex items-center gap-2">
-                              {job.status === 'succeeded' ? <CheckCircle2 className="size-4 text-green-600" /> : job.status === 'failed' || lost ? <XCircle className="size-4 text-destructive" /> : <Loader2 className="size-4 animate-spin text-primary" />}
-                              <span className="font-medium capitalize">{lost ? 'Unavailable' : job.status}</span>
+                              {succeeded ? (
+                                <CheckCircle2 className="size-4 text-emerald-600" />
+                              ) : failed ? (
+                                <XCircle className="size-4 text-destructive" />
+                              ) : (
+                                <Loader2 className="size-4 animate-spin text-primary" />
+                              )}
+                              <span className="font-semibold capitalize">{lost ? 'Unavailable' : job.status}</span>
                               <span className="font-mono text-muted-foreground">{job.chunks_done}/{job.chunks_total ?? '?' } chunks</span>
                               <span className="ml-auto text-muted-foreground">attempt {job.attempts}</span>
                             </div>
@@ -718,10 +768,12 @@ export function AdminRagPage({
                     {loading ? (
                       <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading documents…</div>
                     ) : documents.length === 0 ? (
-                      <p className="py-4 text-sm text-muted-foreground">No documents in this department yet.</p>
+                      <p className="py-6 text-center text-sm text-muted-foreground">No documents in this department yet.</p>
                     ) : documents.map((document) => (
-                      <div key={document.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
-                        {document.status === 'archived' ? <Archive className="size-4 text-muted-foreground" /> : <FileText className="size-4 text-primary" />}
+                      <div key={document.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors hover:bg-muted/40">
+                        <span className="grid size-8 shrink-0 place-items-center rounded-md bg-muted">
+                          {document.status === 'archived' ? <Archive className="size-4 text-muted-foreground" /> : <FileText className="size-4 text-primary" />}
+                        </span>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium">{document.title}</div>
                           <div className="text-xs text-muted-foreground">{document.file_name ?? 'Typed text'} · {document.file_type} · {document.chunk_count} chunks</div>
@@ -740,9 +792,14 @@ export function AdminRagPage({
                 {/* Owner-only, and the gateway agrees: the members routes are
                     owner-or-admin, so a viewer or editor is not offered them. */}
                 {canManageMembers && (
-                  <section className="rounded-xl border bg-card p-4">
-                    <div className="mb-4 flex items-center gap-2"><Users className="size-4 text-primary" /><h2 className="font-semibold">Member access</h2></div>
-                    <div className="mb-4 space-y-2">
+                  <section className="rounded-xl border bg-card p-5">
+                    <div className="mb-4 flex items-center gap-2.5 border-b pb-3">
+                      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                        <Users className="size-4" />
+                      </span>
+                      <h2 className="text-base font-semibold">Member access</h2>
+                    </div>
+                    <div className="mb-4 space-y-2 rounded-lg border bg-muted/30 p-3.5">
                       <div className="flex gap-2">
                         {/* Enter parks the typed address in the batch; the grant
                             itself is the separate button below. */}
@@ -864,12 +921,12 @@ export function AdminRagPage({
                       member keeps the level they have.
                     </p>
                     {members.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No members have access yet.</p>
+                      <p className="py-4 text-center text-sm text-muted-foreground">No members have access yet.</p>
                     ) : (
                       <div className="space-y-2">
                         {members.map((member) => (
-                          <div key={member.user_id} className="flex items-center gap-3 rounded-lg border px-3 py-2">
-                            <span className="min-w-0 flex-1 truncate text-sm">{member.email}</span>
+                          <div key={member.user_id} className="flex items-center gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-muted/40">
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium">{member.email}</span>
                             <select
                               aria-label={`Level for ${member.email}`}
                               value={member.role}
