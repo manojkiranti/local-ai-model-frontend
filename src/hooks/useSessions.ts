@@ -5,6 +5,7 @@ import {
   getSession,
   listSessions,
   openChatStream,
+  ContractError,
   GatewayError,
   type SessionSummary,
   type Source,
@@ -135,6 +136,9 @@ export function useSessions() {
   const [loadingMoreSessions, setLoadingMoreSessions] = useState(false)
   const [threadCursor, setThreadCursor] = useState<string | null>(null)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  // Set only for a mismatch between this client and the gateway's contract, so
+  // the sidebar can explain an empty list instead of just being empty.
+  const [sessionsError, setSessionsError] = useState<string | null>(null)
 
   const controllerRef = useRef<AbortController | null>(null)
   const activeIdRef = useRef<string | null>(null)
@@ -154,8 +158,12 @@ export function useSessions() {
       const page = await listSessions()
       setSessions(page.items)
       setSessionsCursor(page.next_cursor)
-    } catch {
-      // 401 is handled globally by the client; ignore transient list failures.
+      setSessionsError(null)
+    } catch (e) {
+      // A contract mismatch is a deploy problem the user cannot act on blind —
+      // say it. 401 is handled globally; other transient list failures stay
+      // quiet, as they always have.
+      if (e instanceof ContractError) setSessionsError(e.message)
     }
   }, [])
 
@@ -178,6 +186,9 @@ export function useSessions() {
       if (e instanceof GatewayError && e.status === 400) {
         setSessionsCursor(null)
         await refreshSessions()
+      } else if (e instanceof ContractError) {
+        setSessionsCursor(null)
+        setSessionsError(e.message)
       }
       // Any other failure leaves the cursor in place so the user can retry.
     } finally {
@@ -534,6 +545,8 @@ export function useSessions() {
 
   return {
     sessions,
+    /** Set only when the gateway's contract does not match this client. */
+    sessionsError,
     activeId,
     messages,
     loadingThread,

@@ -18,6 +18,7 @@ import {
   listSessions,
   listUsers,
   login,
+  ContractError,
   getSession,
   readNdjson,
   register,
@@ -646,6 +647,49 @@ describe('cursor-paged session routes', () => {
       'http://localhost:8000/v1/sessions/s1?cursor=c1',
     )
     expect(detail.next_cursor).toBe('older.page')
+  })
+
+  // The live failure this guard exists for: a gateway without cursor paging
+  // returns a bare array, `.items` reads `undefined`, and an unguarded value
+  // used to crash the sidebar — blanking the whole app with a TypeError that
+  // named nothing useful.
+  it('names the deploy mismatch when the list comes back unpaged', async () => {
+    // A fresh Response per call: a body can only be read once.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse([
+        {
+          id: 's1',
+          title: 'From an older gateway',
+          created_at: '2026-08-22T00:00:00Z',
+          updated_at: '2026-08-22T00:00:00Z',
+          message_count: 2,
+        },
+      ]),
+    )
+    const error = await listSessions().catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ContractError)
+    expect((error as Error).message).toMatch(/deploy them together/i)
+  })
+
+  it('names the mismatch when a thread comes back in an unknown shape', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ id: 's1', title: 'x' }))
+    await expect(getSession('s1')).rejects.toBeInstanceOf(ContractError)
+  })
+
+  // An older gateway sends the whole thread and no cursor at all. That is
+  // readable as "nothing older", which beats offering a page that cannot exist.
+  it('reads an absent thread cursor as no further page', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        id: 's1',
+        title: 'x',
+        created_at: '2026-08-22T00:00:00Z',
+        updated_at: '2026-08-22T00:00:00Z',
+        messages: [],
+      }),
+    )
+    const detail = await getSession('s1')
+    expect(detail.next_cursor).toBeNull()
   })
 
   it('a malformed cursor rejects with 400 and never clears the session', async () => {

@@ -10,6 +10,7 @@ interface RenderProps {
   hasMoreSessions?: boolean
   loadingMoreSessions?: boolean
   onLoadMoreSessions?: () => void
+  sessionsError?: string | null
 }
 
 function renderSidebar(props: RenderProps = {}) {
@@ -31,6 +32,7 @@ function renderSidebar(props: RenderProps = {}) {
         hasMoreSessions={props.hasMoreSessions ?? false}
         loadingMoreSessions={props.loadingMoreSessions ?? false}
         onLoadMoreSessions={props.onLoadMoreSessions ?? vi.fn()}
+        sessionsError={props.sessionsError ?? null}
       />
     </MemoryRouter>,
   )
@@ -120,5 +122,23 @@ describe('Sidebar conversation paging', () => {
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'zzz' } })
     expect(screen.getByText(/No loaded chats match/i)).not.toBeNull()
     expect(screen.getByText(/Load more to search further back/i)).not.toBeNull()
+  })
+})
+
+// An empty list caused by a deploy mismatch must not read as "no chats yet":
+// that sent a real user hunting a data problem that did not exist.
+describe('Sidebar contract mismatch', () => {
+  afterEach(cleanup)
+
+  it('explains an empty list caused by a gateway mismatch', () => {
+    renderSidebar({ sessions: [], sessionsError: 'This gateway returned an unpaged list.' })
+    expect(screen.getByRole('alert').textContent).toContain('unpaged list')
+    expect(screen.queryByText(/No conversations yet/i)).toBeNull()
+  })
+
+  it('shows the ordinary empty state when nothing is wrong', () => {
+    renderSidebar({ sessions: [] })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText(/No conversations yet/i)).not.toBeNull()
   })
 })

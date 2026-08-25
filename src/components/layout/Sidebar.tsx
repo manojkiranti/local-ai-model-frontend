@@ -65,6 +65,8 @@ interface SidebarProps {
   hasMoreSessions: boolean
   loadingMoreSessions: boolean
   onLoadMoreSessions: () => void
+  /** Set only when the gateway's contract does not match this client. */
+  sessionsError?: string | null
 }
 
 export function Sidebar({
@@ -83,6 +85,7 @@ export function Sidebar({
   hasMoreSessions,
   loadingMoreSessions,
   onLoadMoreSessions,
+  sessionsError = null,
 }: SidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -244,7 +247,14 @@ export function Sidebar({
       </div>
 
       <nav aria-label="Conversations" className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pr-1.5">
-        {sessions.length === 0 ? (
+        {sessionsError ? (
+          <p
+            role="alert"
+            className="mx-1 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-200"
+          >
+            {sessionsError}
+          </p>
+        ) : sessions.length === 0 ? (
           <p className="px-3 py-2 text-xs text-sidebar-muted-foreground">
             No conversations yet — start a new chat.
           </p>

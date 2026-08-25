@@ -12,7 +12,13 @@ vi.mock('@/lib/api', async (importOriginal) => {
   }
 })
 
-import { GatewayError, getSession, listSessions, openChatStream } from '@/lib/api'
+import {
+  ContractError,
+  GatewayError,
+  getSession,
+  listSessions,
+  openChatStream,
+} from '@/lib/api'
 import { useSessions } from '@/hooks/useSessions'
 
 const mockOpen = vi.mocked(openChatStream)
@@ -760,6 +766,28 @@ describe('useSessions cursor paging', () => {
     await waitFor(() => expect(result.current.sending).toBe(false))
     await waitFor(() => expect(result.current.sessions.map((s) => s.id)).toEqual(['s2']))
     expect(result.current.hasMoreSessions).toBe(true)
+  })
+
+  // The sidebar must never receive `undefined`, and an empty list caused by a
+  // deploy mismatch has to explain itself rather than look like "no chats yet".
+  it('reports a contract mismatch instead of emptying the sidebar silently', async () => {
+    mockListSessions.mockRejectedValue(new ContractError('unpaged conversation list'))
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.sessionsError).toBe('unpaged conversation list'))
+    expect(result.current.sessions).toEqual([])
+    expect(result.current.hasMoreSessions).toBe(false)
+  })
+
+  it('clears the mismatch message once the list loads', async () => {
+    mockListSessions.mockRejectedValueOnce(new ContractError('unpaged conversation list'))
+    const { result } = renderHook(() => useSessions())
+    await waitFor(() => expect(result.current.sessionsError).not.toBeNull())
+
+    mockListSessions.mockResolvedValue({ items: [summary('s1')], next_cursor: null })
+    await act(async () => {
+      await result.current.removeSession('nope')
+    })
+    await waitFor(() => expect(result.current.sessionsError).toBeNull())
   })
 
   it('resets accumulated sidebar pages after a deletion', async () => {

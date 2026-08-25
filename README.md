@@ -329,12 +329,16 @@ gateway's `feat/lazy-load` branch (its own record is
 together.** Neither half degrades gracefully, and both failures look like "the
 user has no conversations" rather than like a version mismatch:
 
-- **New frontend, old gateway** — the gateway returns a bare `SessionSummary[]`,
-  the client reads `.items` off an array, gets `undefined`, and the sidebar shows
-  nothing. A thread reads `.messages` off the old (correct) shape and works, so
-  the breakage looks partial and mystifying.
+- **New frontend, old gateway** — the gateway returns a bare `SessionSummary[]`
+  and the client reads `.items` off an array, getting `undefined`. Observed live
+  on 2026-08-24: this is **not** a degraded sidebar, it is a **blank page** —
+  `undefined.filter` throws inside the sidebar's grouping memo, and with no error
+  boundary above it the whole workspace unmounts. `listSessions` now detects the
+  unpaged shape and throws a `ContractError` naming the deploy mismatch, which
+  the sidebar renders in place of the empty state.
 - **Old frontend, new gateway** — the gateway returns `{items, next_cursor}`, the
-  client treats the object as an array, and again renders an empty sidebar.
+  client treats the object as an array, and renders an empty sidebar. Nothing on
+  the frontend can guard this direction; only deploy order can.
 
 Same coupling as `feat/roles` ↔ `feat/role` before it. Deploy them as a pair.
 
@@ -346,6 +350,11 @@ What the client does and does not decide:
   constructed, or persisted — the same rule as a citation's `download_url`.
 - **A thread pages backwards.** Each page is ascending by `seq`, so an older page
   is prepended whole and the client sorts nothing.
+- **A 200 in the wrong shape is a deploy problem, and says so.** Both session
+  routes validate the response shape and raise `ContractError` (distinct from
+  `GatewayError`, which carries an HTTP status) rather than letting an
+  `undefined` travel into a component and crash it. An older gateway's thread
+  with no `next_cursor` is read as "nothing older" instead.
 - **400 means our cursor is bad, not the user's data.** Both loaders recover
   silently by resetting to page one; nothing is surfaced as an error. This is
   distinct from **404** on the thread route, which still means the conversation is
@@ -385,7 +394,8 @@ are, so a long message is never lost to a rejected round trip.
    error instead of resetting, a 404 conflated with that 400, an older page
    appended instead of prepended, a thread reordered by the client, sidebar pages
    left stale after a turn or a deletion, an auto-scroll fired by a prepend, and
-   an over-limit message sent to be rejected with a 422.
+   an over-limit message sent to be rejected with a 422, and an unpaged response
+   crashing a component instead of naming the mismatch.
    **Current pass rate: see `npm run test` below** — the whole suite is green.
    Not yet exercised against a live gateway.
 3. **Feedback capture.** The screen captures none itself. The durable signals are

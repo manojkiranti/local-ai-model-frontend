@@ -163,6 +163,21 @@ export interface SessionDetail {
   next_cursor: string | null
 }
 
+/**
+ * The response was a 200 but not the shape this client is built for — almost
+ * always a gateway that predates a contract change, which is a DEPLOY problem,
+ * not a user-facing failure. Distinct from `GatewayError` so callers can say
+ * what is actually wrong instead of letting a `TypeError` surface somewhere
+ * unrelated (an unguarded `undefined` here previously took down the sidebar,
+ * and with it the whole workspace).
+ */
+export class ContractError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ContractError'
+  }
+}
+
 /** Cursor paging params shared by both session routes. */
 export interface PageParams {
   /** Omitted by callers here on purpose — the gateway owns the default (30). */
@@ -530,7 +545,20 @@ export async function listSessions(
   params: PageParams = {},
   signal?: AbortSignal,
 ): Promise<SessionListPage> {
-  return request<SessionListPage>(`/v1/sessions${pageQuery(params)}`, { method: 'GET' }, signal)
+  const page = await request<SessionListPage>(
+    `/v1/sessions${pageQuery(params)}`,
+    { method: 'GET' },
+    signal,
+  )
+  // A bare array is the pre-paging gateway. Name it here: reading `.items` off
+  // an array yields `undefined`, which used to crash the sidebar three
+  // components away with no hint of the real cause.
+  if (!page || !Array.isArray(page.items)) {
+    throw new ContractError(
+      'This gateway returned an unpaged conversation list. The frontend and gateway must both have cursor paging on /v1/sessions — deploy them together.',
+    )
+  }
+  return page
 }
 
 /**
@@ -542,11 +570,20 @@ export async function getSession(
   params: PageParams = {},
   signal?: AbortSignal,
 ): Promise<SessionDetail> {
-  return request<SessionDetail>(
+  const detail = await request<SessionDetail>(
     `/v1/sessions/${encodeURIComponent(id)}${pageQuery(params)}`,
     { method: 'GET' },
     signal,
   )
+  if (!detail || !Array.isArray(detail.messages)) {
+    throw new ContractError(
+      'This gateway returned a conversation in an unrecognised shape. The frontend and gateway must both have cursor paging on /v1/sessions/{id} — deploy them together.',
+    )
+  }
+  // An older gateway sends the whole thread and no cursor; treating that as
+  // "nothing older" keeps the thread readable instead of offering a page that
+  // does not exist.
+  return { ...detail, next_cursor: detail.next_cursor ?? null }
 }
 
 // --------------------------------------------------------------------------- //
