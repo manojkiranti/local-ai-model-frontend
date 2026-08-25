@@ -6,19 +6,9 @@ import { UserActiveToggle } from '@/components/admin/UserActiveToggle'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  describeError,
-  GatewayError,
-  listUsers,
-  updateUser,
-  type UserOut,
-} from '@/lib/api'
+import { gatewayDetail, listUsers, updateUser, type UserOut } from '@/lib/api'
 
 const PAGE_SIZE = 50
-
-function userError(error: unknown): string {
-  return error instanceof GatewayError ? error.message : describeError(error)
-}
 
 interface UsersPageProps {
   /** The signed-in admin, so their own row cannot offer self-deactivation —
@@ -45,7 +35,7 @@ export function UsersPage({ currentUserId }: UsersPageProps) {
       setUsers(page.items)
       setTotal(page.total)
     } catch (error) {
-      setNotice(userError(error))
+      setNotice(gatewayDetail(error))
     } finally {
       setLoading(false)
     }
@@ -72,7 +62,7 @@ export function UsersPage({ currentUserId }: UsersPageProps) {
     } catch (error) {
       // A 409 (last admin, own account) is a policy refusal, not an auth
       // failure; render it verbatim and leave the row as it was.
-      setNotice(userError(error))
+      setNotice(gatewayDetail(error))
     } finally {
       setBusy(null)
     }

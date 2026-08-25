@@ -304,6 +304,19 @@ export function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/**
+ * The gateway's OWN wording for a failure, preferred over `describeError`.
+ *
+ * `describeError` rewrites 404 and 502 into model-listing copy ("model not
+ * available on the server"), which is right for `useModels` and wrong for every
+ * route that has its own 404 — an unknown user, an unknown document. Use this
+ * wherever the `detail` is meant to reach the reader intact; it still falls back
+ * to `describeError` for aborts and network failures, which carry no detail.
+ */
+export function gatewayDetail(err: unknown): string {
+  return err instanceof GatewayError ? err.message : describeError(err)
+}
+
 // --------------------------------------------------------------------------- //
 // NDJSON stream parsing (the one non-trivial bit — unit tested)
 // --------------------------------------------------------------------------- //

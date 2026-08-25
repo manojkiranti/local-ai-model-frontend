@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  describeError,
+  gatewayDetail,
   grantMcpGrant,
   listMcpGrants,
   revokeMcpGrant,
@@ -40,7 +40,7 @@ export function useMcpGrants(userId: number) {
       .catch((cause) => {
         if (controller.signal.aborted) return
         setItems([])
-        setError(describeError(cause))
+        setError(gatewayDetail(cause))
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false)
@@ -70,7 +70,7 @@ export function useMcpGrants(userId: number) {
         const list = await grantMcpGrant(userId, key)
         setItems(list.items)
       } catch (cause) {
-        setError(describeError(cause))
+        setError(gatewayDetail(cause))
       } finally {
         finish()
       }
@@ -87,7 +87,7 @@ export function useMcpGrants(userId: number) {
         // whether the user previously held it — it only reflects our own list.
         setItems((current) => current.filter((item) => item.grant_key !== key))
       } catch (cause) {
-        setError(describeError(cause))
+        setError(gatewayDetail(cause))
       } finally {
         finish()
       }

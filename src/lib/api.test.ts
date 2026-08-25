@@ -4,6 +4,7 @@ import {
   createDepartmentTextDocument,
   describeError,
   errorFromResponse,
+  gatewayDetail,
   fetchDepartmentDocument,
   getMe,
   getIngestJob,
@@ -797,5 +798,28 @@ describe('MCP grant routes', () => {
   it('revoke rejects on a non-2xx rather than resolving silently', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ detail: 'Unknown user' }, 404))
     await expect(revokeMcpGrant(999, 'mcp-hrms')).rejects.toBeInstanceOf(GatewayError)
+  })
+})
+
+// describeError rewrites 404/502 into model-listing copy. Routes with their own
+// 404 (an unknown user, an unknown document) need the gateway's wording intact.
+describe('gatewayDetail', () => {
+  it('keeps the gateway detail on a 404 instead of the model-listing rewrite', () => {
+    expect(gatewayDetail(new GatewayError(404, 'Unknown user'))).toBe('Unknown user')
+    expect(describeError(new GatewayError(404, 'Unknown user'))).toBe(
+      'model not available on the server',
+    )
+  })
+
+  it('keeps the gateway detail on a 403', () => {
+    expect(gatewayDetail(new GatewayError(403, 'Admin privileges required'))).toBe(
+      'Admin privileges required',
+    )
+  })
+
+  it('falls back to describeError for a network failure, which carries no detail', () => {
+    expect(gatewayDetail(new TypeError('fetch failed'))).toBe(
+      'Cannot reach the gateway. Is it running on port 8000?',
+    )
   })
 })
