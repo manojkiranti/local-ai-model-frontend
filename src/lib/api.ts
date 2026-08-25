@@ -895,43 +895,6 @@ export async function revokeDepartmentMember(
   if (!res.ok) throw await errorFromResponse(res)
 }
 
-export async function listDepartmentDocuments(
-  code: string,
-  includeArchived = false,
-  signal?: AbortSignal,
-): Promise<DepartmentDocument[]> {
-  const query = includeArchived ? '?include_archived=true' : ''
-  return request<DepartmentDocument[]>(
-    `/v1/departments/${encodeURIComponent(code)}/documents${query}`,
-    { method: 'GET' },
-    signal,
-  )
-}
-
-export async function uploadDepartmentDocument(
-  code: string,
-  title: string,
-  file: File,
-  signal?: AbortSignal,
-): Promise<IngestAccepted> {
-  const form = new FormData()
-  form.append('title', title)
-  form.append('file', file)
-  const res = await rawFetch(
-    `/v1/departments/${encodeURIComponent(code)}/documents`,
-    { method: 'POST', body: form },
-    signal,
-  )
-  if (!res.ok) throw await errorFromResponse(res)
-  return res.json() as Promise<IngestAccepted>
-}
-
-export async function createDepartmentTextDocument(
-  code: string,
-  body: { title: string; content: string },
-  signal?: AbortSignal,
-): Promise<IngestAccepted> {
-  return request<IngestAccepted>(
 // --------------------------------------------------------------------------- //
 // Per-user MCP tool grants (admin only). Three roles name a SYSTEM the user may
 // touch, three permissions name a SHARP EDGE inside one. Neither implies the
@@ -1016,6 +979,43 @@ export async function revokeMcpGrant(
   if (!res.ok) throw await errorFromResponse(res)
 }
 
+export async function listDepartmentDocuments(
+  code: string,
+  includeArchived = false,
+  signal?: AbortSignal,
+): Promise<DepartmentDocument[]> {
+  const query = includeArchived ? '?include_archived=true' : ''
+  return request<DepartmentDocument[]>(
+    `/v1/departments/${encodeURIComponent(code)}/documents${query}`,
+    { method: 'GET' },
+    signal,
+  )
+}
+
+export async function uploadDepartmentDocument(
+  code: string,
+  title: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<IngestAccepted> {
+  const form = new FormData()
+  form.append('title', title)
+  form.append('file', file)
+  const res = await rawFetch(
+    `/v1/departments/${encodeURIComponent(code)}/documents`,
+    { method: 'POST', body: form },
+    signal,
+  )
+  if (!res.ok) throw await errorFromResponse(res)
+  return res.json() as Promise<IngestAccepted>
+}
+
+export async function createDepartmentTextDocument(
+  code: string,
+  body: { title: string; content: string },
+  signal?: AbortSignal,
+): Promise<IngestAccepted> {
+  return request<IngestAccepted>(
     `/v1/departments/${encodeURIComponent(code)}/documents/text`,
     { method: 'POST', body: JSON.stringify(body) },
     signal,
