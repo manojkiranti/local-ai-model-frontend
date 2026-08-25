@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { useMcpStatus } from '@/hooks/useMcpStatus'
+import { exposedToolsHint } from '@/lib/mcp-grants'
 import type { HealthResponse } from '@/lib/api'
 import {
   Tooltip,
@@ -63,12 +64,18 @@ export function SystemStatusBadge({
         : error || 'gateway unavailable'
   const mcpDetail =
     state === 'connected'
-      ? `connected · ${status?.tools.length ?? 0} tools`
+      ? `connected · ${status?.tools.length ?? 0} ${status?.tools.length === 1 ? 'tool' : 'tools'}`
       : state === 'off'
         ? 'not configured'
         : state === 'disconnected'
           ? status?.error || 'unavailable'
           : 'checking'
+
+  // Truthful: these are the names the MCP server just told us IT exposes to this
+  // caller. The hint below is a copy-only heuristic and sits under them, so a
+  // wrong guess is next to the truth.
+  const exposedTools = state === 'connected' ? (status?.tools ?? []) : []
+  const toolsHint = state === 'connected' ? exposedToolsHint(exposedTools) : null
 
   return (
     <Tooltip>
@@ -101,7 +108,14 @@ export function SystemStatusBadge({
             <span className="break-words">{modelDetail}</span>
             <span className="text-muted-foreground">MCP</span>
             <span className="break-words">{mcpDetail}</span>
+            {exposedTools.length > 0 && (
+              <>
+                <span className="text-muted-foreground">Tools</span>
+                <span className="break-words">{exposedTools.join(' · ')}</span>
+              </>
+            )}
           </div>
+          {toolsHint && <p className="text-[11px] leading-relaxed">{toolsHint}</p>}
         </div>
       </TooltipContent>
     </Tooltip>
