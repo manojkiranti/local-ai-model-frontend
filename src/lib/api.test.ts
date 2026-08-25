@@ -3,6 +3,7 @@ import {
   cosineSimilarity,
   createDepartmentTextDocument,
   describeError,
+  errorFromResponse,
   fetchDepartmentDocument,
   getMe,
   getIngestJob,
@@ -652,5 +653,50 @@ describe('cursor-paged session routes', () => {
     await expect(listSessions({ cursor: 'garbage' })).rejects.toMatchObject({ status: 400 })
     expect(onUnauthorized).not.toHaveBeenCalled()
     expect(getToken()).toBe('tok.pages')
+  })
+})
+
+// FastAPI validation errors are a LIST of {loc, msg, type}, not a string. The
+// gateway's grant route relies on that shape to name an unknown grant key.
+describe('errorFromResponse', () => {
+  it('flattens a FastAPI validation array into its messages', async () => {
+    const err = await errorFromResponse(
+      jsonResponse(
+        {
+          detail: [
+            {
+              loc: ['body', 'grant_key'],
+              msg: "Value error, unknown grant: 'nope'; expected one of ['mcp-ems']",
+              type: 'value_error',
+            },
+          ],
+        },
+        422,
+      ),
+    )
+    expect(err.status).toBe(422)
+    expect(err.message).toBe(
+      "Value error, unknown grant: 'nope'; expected one of ['mcp-ems']",
+    )
+  })
+
+  it('joins several validation messages', async () => {
+    const err = await errorFromResponse(
+      jsonResponse(
+        { detail: [{ msg: 'field required' }, { msg: 'extra fields not permitted' }] },
+        422,
+      ),
+    )
+    expect(err.message).toBe('field required; extra fields not permitted')
+  })
+
+  it('keeps a string detail exactly as the gateway sent it', async () => {
+    const err = await errorFromResponse(jsonResponse({ detail: 'Unknown user' }, 404))
+    expect(err.message).toBe('Unknown user')
+  })
+
+  it('falls back to the generic message for a detail it cannot read', async () => {
+    const err = await errorFromResponse(jsonResponse({ detail: { nested: true } }, 500))
+    expect(err.message).toBe('Request failed (HTTP 500)')
   })
 })

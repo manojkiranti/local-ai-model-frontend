@@ -269,7 +269,21 @@ export async function errorFromResponse(res: Response): Promise<GatewayError> {
   let detail = `Request failed (HTTP ${res.status})`
   try {
     const data = await res.json()
-    if (data && typeof data.detail === 'string') detail = data.detail
+    if (data && typeof data.detail === 'string') {
+      detail = data.detail
+    } else if (data && Array.isArray(data.detail)) {
+      // FastAPI validation errors arrive as a LIST of {loc, msg, type}. Without
+      // this branch a 422 loses the gateway's message — which is exactly the
+      // one naming an unknown grant key and listing the valid set.
+      const messages = data.detail
+        .map((item: unknown) =>
+          item && typeof item === 'object' && typeof (item as { msg?: unknown }).msg === 'string'
+            ? (item as { msg: string }).msg
+            : null,
+        )
+        .filter((msg: string | null): msg is string => msg !== null)
+      if (messages.length > 0) detail = messages.join('; ')
+    }
   } catch {
     // Body wasn't JSON; keep the generic message.
   }
