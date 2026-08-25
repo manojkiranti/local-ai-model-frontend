@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -33,6 +34,14 @@ function page(items: UserOut[], total = items.length) {
   return { total, limit: 50, offset: 0, items }
 }
 
+function renderPage(currentUserId: number) {
+  return render(
+    <MemoryRouter>
+      <UsersPage currentUserId={currentUserId} />
+    </MemoryRouter>,
+  )
+}
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
@@ -45,7 +54,7 @@ describe('UsersPage', () => {
   })
 
   it('lists users with their role and status', async () => {
-    render(<UsersPage currentUserId={99} />)
+    renderPage(99)
     await waitFor(() => expect(screen.getByText('alice@odin.test')).not.toBeNull())
     const row = screen.getByText('alice@odin.test').closest('li')!
     expect(within(row).getByText('admin')).not.toBeNull()
@@ -53,7 +62,7 @@ describe('UsersPage', () => {
   })
 
   it('searches by email, resetting to the first page', async () => {
-    render(<UsersPage currentUserId={99} />)
+    renderPage(99)
     await waitFor(() => expect(mockList).toHaveBeenCalled())
     fireEvent.change(screen.getByLabelText('Search users'), { target: { value: 'nina' } })
     fireEvent.submit(screen.getByLabelText('Search users').closest('form')!)
@@ -63,7 +72,7 @@ describe('UsersPage', () => {
   })
 
   it('deactivates an active user by sending is_active: false', async () => {
-    render(<UsersPage currentUserId={99} />)
+    renderPage(99)
     await waitFor(() => expect(screen.getByText('alice@odin.test')).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: /Deactivate/ }))
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(1, { is_active: false }))
@@ -73,7 +82,7 @@ describe('UsersPage', () => {
 
   it('activates an inactive user by sending is_active: true', async () => {
     mockList.mockResolvedValue(page([user({ id: 5, email: 'gone@odin.test', is_active: false })]))
-    render(<UsersPage currentUserId={99} />)
+    renderPage(99)
     await waitFor(() => expect(screen.getByText('gone@odin.test')).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: /Activate/ }))
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledWith(5, { is_active: true }))
@@ -83,7 +92,7 @@ describe('UsersPage', () => {
   // firing a doomed request.
   it('disables Deactivate on the signed-in admin’s own row', async () => {
     mockList.mockResolvedValue(page([user({ id: 7, email: 'me@odin.test', role: 'admin' })]))
-    render(<UsersPage currentUserId={7} />)
+    renderPage(7)
     await waitFor(() => expect(screen.getByText('me@odin.test')).not.toBeNull())
     const button = screen.getByRole('button', { name: /Deactivate/ }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
@@ -96,7 +105,7 @@ describe('UsersPage', () => {
     mockUpdate.mockRejectedValue(
       new GatewayError(409, 'This is the last active admin; promote or activate another admin first'),
     )
-    render(<UsersPage currentUserId={99} />)
+    renderPage(99)
     await waitFor(() => expect(screen.getByText('boss@odin.test')).not.toBeNull())
     fireEvent.click(screen.getByRole('button', { name: /Deactivate/ }))
     await waitFor(() =>
@@ -108,9 +117,17 @@ describe('UsersPage', () => {
     expect(screen.getByRole('button', { name: /Deactivate/ })).not.toBeNull()
   })
 
+  it('links each row to that user’s detail page', async () => {
+    mockList.mockResolvedValue(page([user({ id: 12, email: 'alice@odin.test' })]))
+    renderPage(99)
+    await waitFor(() => expect(screen.getByText('alice@odin.test')).not.toBeNull())
+    const link = screen.getByRole('link', { name: /alice@odin.test/ }) as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('/admin/users/12')
+  })
+
   it('advances the offset when paging forward', async () => {
     mockList.mockResolvedValue(page([user({ id: 1 })], 120))
-    render(<UsersPage currentUserId={99} />)
+    renderPage(99)
     await waitFor(() => expect(mockList).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     await waitFor(() =>

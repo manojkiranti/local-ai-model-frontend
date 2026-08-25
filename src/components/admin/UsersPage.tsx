@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { AlertTriangle, Loader2, Search, ShieldCheck, UserCog } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { UserActiveToggle } from '@/components/admin/UserActiveToggle'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -132,7 +134,13 @@ export function UsersPage({ currentUserId }: UsersPageProps) {
                 return (
                   <li key={user.id} className="flex items-center gap-3 px-4 py-3">
                     <UserCog className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate text-sm">{user.email}</span>
+                    <Link
+                      to={`/admin/users/${user.id}`}
+                      state={{ user }}
+                      className="min-w-0 flex-1 truncate text-sm hover:text-primary hover:underline"
+                    >
+                      {user.email}
+                    </Link>
                     <Badge variant="outline" className="capitalize">{user.role}</Badge>
                     <span
                       className={`inline-flex items-center gap-1.5 text-xs ${user.is_active ? 'text-foreground' : 'text-muted-foreground'}`}
@@ -143,29 +151,12 @@ export function UsersPage({ currentUserId }: UsersPageProps) {
                       />
                       {user.is_active ? 'Active' : 'Inactive'}
                     </span>
-                    {user.is_active ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={() => void setActive(user, false)}
-                        // Self-deactivation is the one refusal the client can be
-                        // certain of; the last-admin case still comes back as a 409.
-                        disabled={busy === user.id || isSelf}
-                        title={isSelf ? 'You cannot deactivate your own account' : undefined}
-                      >
-                        {busy === user.id ? <Loader2 className="animate-spin" /> : null} Deactivate
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void setActive(user, true)}
-                        disabled={busy === user.id}
-                      >
-                        {busy === user.id ? <Loader2 className="animate-spin" /> : null} Activate
-                      </Button>
-                    )}
+                    <UserActiveToggle
+                      user={user}
+                      isSelf={isSelf}
+                      busy={busy === user.id}
+                      onChange={(isActive) => void setActive(user, isActive)}
+                    />
                   </li>
                 )
               })}
