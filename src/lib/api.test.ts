@@ -8,6 +8,9 @@ import {
   getMe,
   getIngestJob,
   grantDepartmentMember,
+  grantMcpGrant,
+  listMcpGrants,
+  revokeMcpGrant,
   listDepartmentDocuments,
   listDepartments,
   listFiles,
@@ -698,5 +701,101 @@ describe('errorFromResponse', () => {
   it('falls back to the generic message for a detail it cannot read', async () => {
     const err = await errorFromResponse(jsonResponse({ detail: { nested: true } }, 500))
     expect(err.message).toBe('Request failed (HTTP 500)')
+  })
+})
+
+describe('MCP grant routes', () => {
+  const list = {
+    user_id: 42,
+    items: [
+      { grant_key: 'mcp-hrms', granted_at: '2026-08-25T08:31:27.259932+05:45', granted_by: 661 },
+    ],
+  }
+
+  beforeEach(() => setToken('tok.grants'))
+  afterEach(() => {
+    vi.restoreAllMocks()
+    clearToken()
+  })
+
+  it('GETs the grants for one user', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(list))
+    const got = await listMcpGrants(42)
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      'http://localhost:8000/v1/users/42/mcp-grants',
+    )
+    expect(got.items[0].grant_key).toBe('mcp-hrms')
+  })
+
+  // extra="forbid" on the gateway: anything but grant_key is a 422.
+  it('POSTs exactly { grant_key } and returns the full list', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(list, 201))
+    const got = await grantMcpGrant(42, 'mcp-hrms')
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe('http://localhost:8000/v1/users/42/mcp-grants')
+    expect(init!.method).toBe('POST')
+    expect(JSON.parse(String(init!.body))).toEqual({ grant_key: 'mcp-hrms' })
+    expect(got.items).toHaveLength(1)
+  })
+
+  it('DELETEs an encoded grant key and resolves void on 204', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    await expect(revokeMcpGrant(42, 'mcp.ems.query')).resolves.toBeUndefined()
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe('http://localhost:8000/v1/users/42/mcp-grants/mcp.ems.query')
+    expect(init!.method).toBe('DELETE')
+  })
+
+  // A 403 means "signed in, not an admin" — a policy refusal, not an expired
+  // session. It must reach the caller with the gateway's wording and MUST NOT
+  // clear the token or fire the unauthorized handler.
+  it('keeps the session on a 403 and surfaces the detail verbatim', async () => {
+    const onUnauthorized = vi.fn()
+    registerUnauthorizedHandler(onUnauthorized)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'Admin privileges required' }, 403),
+    )
+    await expect(grantMcpGrant(42, 'mcp-ems')).rejects.toMatchObject({
+      status: 403,
+      message: 'Admin privileges required',
+    })
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    expect(getToken()).toBe('tok.grants')
+  })
+
+  it('clears the session on a 401', async () => {
+    const onUnauthorized = vi.fn()
+    registerUnauthorizedHandler(onUnauthorized)
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'Could not validate credentials' }, 401),
+    )
+    await expect(listMcpGrants(42)).rejects.toMatchObject({ status: 401 })
+    expect(onUnauthorized).toHaveBeenCalled()
+    expect(getToken()).toBeNull()
+  })
+
+  it('surfaces a 404 for an unknown user', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ detail: 'Unknown user' }, 404))
+    await expect(listMcpGrants(999)).rejects.toMatchObject({
+      status: 404,
+      message: 'Unknown user',
+    })
+  })
+
+  it('surfaces the flattened 422 when a grant key is unknown to the gateway', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: [{ msg: "Value error, unknown grant: 'mcp-nope'" }] }, 422),
+    )
+    await expect(grantMcpGrant(42, 'mcp-hrms')).rejects.toMatchObject({
+      status: 422,
+      message: "Value error, unknown grant: 'mcp-nope'",
+    })
+  })
+
+  it('revoke rejects on a non-2xx rather than resolving silently', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ detail: 'Unknown user' }, 404))
+    await expect(revokeMcpGrant(999, 'mcp-hrms')).rejects.toBeInstanceOf(GatewayError)
   })
 })

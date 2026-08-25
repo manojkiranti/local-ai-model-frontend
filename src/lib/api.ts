@@ -932,6 +932,90 @@ export async function createDepartmentTextDocument(
   signal?: AbortSignal,
 ): Promise<IngestAccepted> {
   return request<IngestAccepted>(
+// --------------------------------------------------------------------------- //
+// Per-user MCP tool grants (admin only). Three roles name a SYSTEM the user may
+// touch, three permissions name a SHARP EDGE inside one. Neither implies the
+// other, and a global admin holds NOTHING implicitly — that is deliberate, so
+// operating the gateway does not confer salary data and an expenses SQL console.
+//
+// The gateway does not hold a tool -> grant map and neither does this client:
+// the MCP server decides which tools a grant unlocks, and a second copy drifts
+// silently in the worst direction.
+// --------------------------------------------------------------------------- //
+/** The six strings the gateway accepts. Send only these. */
+export type McpGrantKey =
+  | 'mcp-hrms'
+  | 'mcp-izone'
+  | 'mcp-ems'
+  | 'mcp.hrms.full'
+  | 'mcp.hrms.tasks'
+  | 'mcp.ems.query'
+
+export interface McpGrant {
+  /**
+   * Deliberately `string`, not `McpGrantKey`. The gateway and this client deploy
+   * independently, and `McpIdentity.from_grants` already tolerates a key a given
+   * build does not define. Dropping an unrecognised key here would hide a grant
+   * the user actually holds — a lost capability with no error on either side.
+   */
+  grant_key: string
+  granted_at: string
+  /** The admin who granted it. Never rewritten by a re-grant: it is the audit fact. */
+  granted_by: number | null
+}
+
+export interface McpGrantList {
+  user_id: number
+  items: McpGrant[]
+}
+
+/** 403 when the caller is not an admin, 404 for an unknown user. */
+export async function listMcpGrants(
+  userId: number,
+  signal?: AbortSignal,
+): Promise<McpGrantList> {
+  return request<McpGrantList>(`/v1/users/${userId}/mcp-grants`, { method: 'GET' }, signal)
+}
+
+/**
+ * Grant one key. Idempotent: re-granting is a 201 with the SAME list and an
+ * UNTOUCHED `granted_at`/`granted_by`, never a 409. Render the returned
+ * timestamp — never "granted just now".
+ *
+ * The body is exactly `{ grant_key }`; the gateway sets `extra="forbid"`.
+ */
+export async function grantMcpGrant(
+  userId: number,
+  key: McpGrantKey,
+  signal?: AbortSignal,
+): Promise<McpGrantList> {
+  return request<McpGrantList>(
+    `/v1/users/${userId}/mcp-grants`,
+    { method: 'POST', body: JSON.stringify({ grant_key: key }) },
+    signal,
+  )
+}
+
+/**
+ * Revoke one key. 204 with an empty body whether or not a row existed, so a
+ * success says NOTHING about whether the user previously held it.
+ *
+ * Takes `string`, not `McpGrantKey`, so a key this build does not recognise
+ * stays revocable.
+ */
+export async function revokeMcpGrant(
+  userId: number,
+  grantKey: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await rawFetch(
+    `/v1/users/${userId}/mcp-grants/${encodeURIComponent(grantKey)}`,
+    { method: 'DELETE' },
+    signal,
+  )
+  if (!res.ok) throw await errorFromResponse(res)
+}
+
     `/v1/departments/${encodeURIComponent(code)}/documents/text`,
     { method: 'POST', body: JSON.stringify(body) },
     signal,
