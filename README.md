@@ -183,6 +183,21 @@ unavailable"`, otherwise it surfaces `detail`.
   account's access off on its next request. The admin's **own** row cannot
   self-deactivate (disabled up front); the **last active admin** case comes back
   as a **409** rendered verbatim, and neither logs anyone out.
+- **MCP tool access** — each directory row opens `/admin/users/:id`, where an
+  admin grants and revokes the six per-user MCP grants: three **roles** naming a
+  system (`mcp-hrms`, `mcp-izone`, `mcp-ems`) and three **permissions** naming a
+  sharp edge inside one (`mcp.hrms.full` for the 80+ field employee record
+  including salary, `mcp.hrms.tasks` for pending approval counts, `mcp.ems.query`
+  for free-form read-only SQL over the expenses database). A permission never
+  implies its role: the SQL console needs **both** `mcp-ems` and `mcp.ems.query`,
+  and the screen says so — with a one-click "also grant the role" — whenever only
+  one half is held. Being a gateway admin confers **no** tool access; admins grant
+  themselves explicitly, which is what records who granted what. Re-granting is
+  idempotent and deliberately keeps the original `granted_at`, so the page never
+  claims "granted just now". The screen lists **grants, not tools**: the MCP
+  server decides which tool a grant unlocks, and there is no way to preview
+  another user's tool list. Until a user holds a grant the assistant reaches only
+  the MCP server's clock tool, and the system status tooltip names that state.
 - **NRB updates** — admins get a `/admin/nrb` screen over the three `/v1/nrb`
   endpoints: the update in progress (or the latest result) with its status,
   stage, timestamps, counters, job counts and failure text; and the catalog /

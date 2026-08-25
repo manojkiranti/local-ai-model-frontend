@@ -193,6 +193,24 @@ explicitly includes backend work.
     while a client-side `viewer` default silently demotes them. Members routes
     work on a soft-disabled department (grants outlive it); the corpus routes
     still 404 there.
+18. **MCP grants are six strings, and the client maps none of them to tools.**
+    Roles name a system (`mcp-hrms`, `mcp-izone`, `mcp-ems`); permissions name a
+    sharp edge inside one (`mcp.hrms.full`, `mcp.hrms.tasks`, `mcp.ems.query`).
+    Neither implies the other, and two tools need both halves. The MCP server is
+    the only place a tool -> grant map exists — do not add a second copy here;
+    `src/lib/mcp-grants.ts` holds descriptions and a permission -> role hint that
+    render COPY ONLY and never gate a control. Four traps. `POST` is idempotent
+    and deliberately does NOT rewrite `granted_at`/`granted_by`, so render the
+    timestamp the response carries and never "granted just now". `DELETE` returns
+    204 whether or not a row existed, so a success says nothing about prior
+    state. A global admin holds NO grant implicitly — an admin's own page shows
+    an empty list, and its controls must stay visible and enabled, because
+    granting themselves is what writes the audit row. And a 403 here is a policy
+    refusal from a signed-in caller: render `detail` verbatim, never let it reach
+    the 401 path. Reads type `grant_key` as `string`, not the union, so a key
+    this build does not recognise stays visible and revocable. Note that
+    `describeError` rewrites 404/502 into model-listing copy — use
+    `gatewayDetail` wherever the gateway's own `detail` must reach the reader.
 
 ## Testing conventions
 
@@ -251,6 +269,12 @@ explicitly includes backend work.
   `src/components/admin/NrbOpsPage.test.tsx`, then hard rule 14. Pipeline
   lifecycle logic belongs to the gateway (`app/nrb/pipeline.py`); this screen
   reads and displays and computes nothing derived.
+- **MCP tool grants:** read `src/lib/mcp-grants.ts`, `src/hooks/useMcpGrants.ts`,
+  `src/components/admin/McpGrantsPanel.tsx` and its test, then hard rule 18. The
+  gateway owns the vocabulary (`app/mcp/grants.py`) and the MCP server owns which
+  tool a grant unlocks; this client renders grants and derives nothing. The entry
+  point is the row link in `src/components/admin/UsersPage.tsx` and the
+  `admin/users/:id` route in `src/components/workspace/Workspace.tsx`.
 - **Styling or theme work:** read the token definitions in `src/index.css` and
   inspect the existing shared UI primitive first.
 - **Routes or navigation:** follow `src/App.tsx`, then the nested routes in
