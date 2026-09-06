@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  UPLOAD_ACCEPT,
   attachmentWarning,
   describeUploadError,
   describeUploadSummary,
@@ -8,8 +9,10 @@ import {
 } from '@/lib/upload-validation'
 import { GatewayError } from '@/lib/api'
 
+// Word-for-word the gateway's own 400 copy for a bad extension, so the
+// client-side rejection and the server's read identically.
 const REJECTION =
-  'only .xlsx, .csv, .pdf, .docx, .txt, .md, .json and images (.png, .jpg, .jpeg, .webp, .tif, .tiff, .bmp) are accepted'
+  'only .xlsx, .csv, .pdf, .docx, .pptx, .txt, .md, .json, .png, .jpg, .jpeg, .webp, .tif, .tiff and .bmp files are accepted'
 
 function fileOfSize(name: string, bytes: number): File {
   // A File whose .size is `bytes` without allocating that much memory.
@@ -26,11 +29,14 @@ describe('validateUpload', () => {
   it('accepts .csv', () => {
     expect(validateUpload(new File(['x'], 'a.csv'))).toBeNull()
   })
-  it.each(['pdf', 'docx', 'txt', 'md', 'json'])('accepts .%s documents', (ext) => {
+  it.each(['pdf', 'docx', 'pptx', 'txt', 'md', 'json'])('accepts .%s documents', (ext) => {
     expect(validateUpload(new File(['x'], `a.${ext}`))).toBeNull()
   })
   it('accepts uppercase extension', () => {
     expect(validateUpload(new File(['x'], 'A.PDF'))).toBeNull()
+  })
+  it('accepts an uppercase .PPTX', () => {
+    expect(validateUpload(new File(['x'], 'DECK.PPTX'))).toBeNull()
   })
   it('rejects .xls', () => {
     expect(validateUpload(new File(['x'], 'a.xls'))).toBe(
@@ -73,6 +79,17 @@ describe('validateUpload', () => {
   })
   it('still rejects a huge file with a disallowed extension', () => {
     expect(validateUpload(fileOfSize('a.xls', 50 * 1024 * 1024))).toBe(REJECTION)
+  })
+})
+
+describe('UPLOAD_ACCEPT', () => {
+  // The Composer's file-input `accept` is this string verbatim, so a format the
+  // gateway takes but this list omits is unpickable from the file chooser.
+  it('offers every accepted extension to the file picker', () => {
+    const exts = UPLOAD_ACCEPT.split(',')
+    for (const ext of ['.pdf', '.docx', '.pptx', '.xlsx', '.csv', '.txt', '.md', '.json', '.png']) {
+      expect(exts).toContain(ext)
+    }
   })
 })
 
@@ -125,6 +142,30 @@ describe('describeUploadSummary', () => {
         chars: 9042,
       }),
     ).toBe('PDF · 3 pages · 125 lines · 9,042 chars')
+  })
+  // A deck is counted in slides, not pages: "3 pages" for a PowerPoint reads as
+  // a conversion the gateway never did.
+  it('counts a PowerPoint deck in slides', () => {
+    expect(
+      describeUploadSummary({
+        kind: 'PowerPoint presentation',
+        pages: 3,
+        text_pages: 3,
+        lines: 41,
+        chars: 812,
+      }),
+    ).toBe('PowerPoint presentation · 3 slides · 41 lines · 812 chars')
+  })
+  it('uses the singular for a one-slide deck', () => {
+    expect(
+      describeUploadSummary({
+        kind: 'PowerPoint presentation',
+        pages: 1,
+        text_pages: 1,
+        lines: 4,
+        chars: 60,
+      }),
+    ).toBe('PowerPoint presentation · 1 slide · 4 lines · 60 chars')
   })
   it('formats an image as kind and pixel dimensions', () => {
     expect(
@@ -190,6 +231,47 @@ describe('attachmentWarning', () => {
   it('does not warn for a single-frame image', () => {
     expect(
       attachmentWarning({ kind: 'PNG image', width: 900, height: 420, frames: 1 }),
+    ).toBeNull()
+  })
+
+  // A picture-only deck is NOT a scan: read_document opens it and reports
+  // "(no text on this slide)" per slide. Saying it "can't be read yet" would
+  // describe a failure that does not happen.
+  it('notes a picture-only deck without calling it an unreadable scan', () => {
+    const note = attachmentWarning({
+      kind: 'PowerPoint presentation',
+      pages: 12,
+      text_pages: 0,
+      lines: 0,
+      chars: 0,
+    })
+    expect(note).toBe(
+      'No text on any slide — this deck is pictures only, so there is nothing for the model to read.',
+    )
+    expect(note).not.toBe(warning)
+  })
+
+  it('does not warn for a deck that has text on some slides', () => {
+    expect(
+      attachmentWarning({
+        kind: 'PowerPoint presentation',
+        pages: 12,
+        text_pages: 9,
+        lines: 88,
+        chars: 1400,
+      }),
+    ).toBeNull()
+  })
+
+  it('does not warn for an empty deck with no slides at all', () => {
+    expect(
+      attachmentWarning({
+        kind: 'PowerPoint presentation',
+        pages: 0,
+        text_pages: 0,
+        lines: 0,
+        chars: 0,
+      }),
     ).toBeNull()
   })
 

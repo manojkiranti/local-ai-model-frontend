@@ -12,6 +12,12 @@ describe('fileKind', () => {
     expect(fileKind('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')).toBe('Excel')
     expect(fileKind('application/vnd.ms-excel')).toBe('Excel')
     expect(fileKind('application/vnd.openxmlformats-officedocument.wordprocessingml.document')).toBe('Word')
+    expect(
+      fileKind(
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      ),
+    ).toBe('PowerPoint')
+    expect(fileKind('application/vnd.ms-powerpoint')).toBe('PowerPoint')
     expect(fileKind('image/svg+xml')).toBe('SVG')
     expect(fileKind('text/html; charset=utf-8')).toBe('HTML')
     expect(fileKind('image/png')).toBe('Image')

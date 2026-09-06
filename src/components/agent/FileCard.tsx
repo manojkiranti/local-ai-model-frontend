@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   Image as ImageIcon,
   Loader2,
+  Presentation,
 } from 'lucide-react'
 import { describeError, fetchFile } from '@/lib/api'
 import { filenameFromContentDisposition } from '@/lib/file-format'
@@ -23,14 +24,16 @@ const isImage = (ct: string) => ct.startsWith('image/')
 const isHtml = (ct: string) => ct.includes('text/html')
 const isSpreadsheet = (ct: string) =>
   ct.includes('spreadsheetml.sheet') || ct.includes('application/vnd.ms-excel')
+const isDeck = (ct: string) =>
+  ct.includes('presentationml.presentation') || ct.includes('ms-powerpoint')
 
 /**
  * Render one gateway-generated file inline. Fetches `/v1/files/{id}` WITH the
  * bearer header (a plain <a> can't), then branches on the real Content-Type:
  * images (SVG charts) show inline via <img> (never innerHTML — img-loaded SVG
  * can't run scripts), HTML previews in a sandboxed iframe (no allow-scripts),
- * spreadsheets and everything else get a download chip. The blob URL is revoked
- * on unmount.
+ * spreadsheets, decks and everything else get a download chip — a browser
+ * renders none of those. The blob URL is revoked on unmount.
  */
 export function FileCard({ file }: { file: FileRef }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
@@ -100,7 +103,9 @@ export function FileCard({ file }: { file: FileRef }) {
     ? ImageIcon
     : isSpreadsheet(loaded.contentType)
       ? FileSpreadsheet
-      : FileIcon
+      : isDeck(loaded.contentType)
+        ? Presentation
+        : FileIcon
 
   const downloadChip = (
     <a
@@ -145,6 +150,6 @@ export function FileCard({ file }: { file: FileRef }) {
     )
   }
 
-  // Spreadsheets and anything else: download only.
+  // Spreadsheets, decks, and anything else: download only.
   return downloadChip
 }

@@ -685,6 +685,7 @@ export interface DocumentUploadSummary {
   kind:
     | 'PDF'
     | 'Word document'
+    | 'PowerPoint presentation'
     | 'Text file'
     | 'Markdown'
     | 'JSON'

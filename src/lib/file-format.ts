@@ -4,12 +4,14 @@
  * unit tested (the branching is the easy thing to get subtly wrong).
  */
 
-/** Short, human label for a media type: PDF / Excel / HTML / SVG / … */
+/** Short, human label for a media type: PDF / Excel / PowerPoint / HTML / … */
 export function fileKind(mediaType: string | null | undefined): string {
   const ct = (mediaType ?? '').toLowerCase()
   if (ct.includes('pdf')) return 'PDF'
   if (ct.includes('spreadsheetml.sheet') || ct.includes('ms-excel')) return 'Excel'
   if (ct.includes('wordprocessingml.document') || ct.includes('msword')) return 'Word'
+  if (ct.includes('presentationml.presentation') || ct.includes('ms-powerpoint'))
+    return 'PowerPoint'
   if (ct.includes('svg')) return 'SVG'
   if (ct.includes('html')) return 'HTML'
   if (ct.startsWith('image/')) return 'Image'

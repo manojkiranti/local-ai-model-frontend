@@ -8,15 +8,18 @@ import { GatewayError, type UploadSummary } from '@/lib/api'
 /** Raster formats the gateway accepts and can OCR (see `app/files/images.py`). */
 const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.tif', '.tiff', '.bmp']
 
-const DOCUMENT_EXT = ['.pdf', '.docx', '.txt', '.md', '.json', '.xlsx', '.csv']
+const DOCUMENT_EXT = ['.pdf', '.docx', '.pptx', '.txt', '.md', '.json', '.xlsx', '.csv']
 
 const ALLOWED_EXT = [...DOCUMENT_EXT, ...IMAGE_EXT]
 
 export const UPLOAD_ACCEPT = ALLOWED_EXT.join(',')
 
+// Word-for-word the gateway's own 400 copy, so a file rejected here reads
+// exactly as it would had the round trip happened.
 const ACCEPTED_FILE_ERROR =
-  'only .xlsx, .csv, .pdf, .docx, .txt, .md, .json and images ' +
-  `(${IMAGE_EXT.join(', ')}) are accepted`
+  'only .xlsx, .csv, .pdf, .docx, .pptx, .txt, .md, .json, ' +
+  `${IMAGE_EXT.slice(0, -1).join(', ')} and ${IMAGE_EXT[IMAGE_EXT.length - 1]} ` +
+  'files are accepted'
 
 // iOS shares photos as HEIC/HEIF, which the gateway rejects outright. Naming the
 // fix beats making the user guess which of seven image extensions to try — and
@@ -71,7 +74,10 @@ export function describeUploadSummary(s: UploadSummary): string {
     parts.push(`${count(s.total_rows)} ${s.total_rows === 1 ? 'row' : 'rows'}`)
   } else {
     if (s.pages > 0) {
-      parts.push(`${count(s.pages)} ${s.pages === 1 ? 'page' : 'pages'}`)
+      // A deck's `pages` is its slide count; calling those "pages" describes a
+      // conversion the gateway never performed.
+      const unit = s.kind === 'PowerPoint presentation' ? 'slide' : 'page'
+      parts.push(`${count(s.pages)} ${s.pages === 1 ? unit : `${unit}s`}`)
     }
     parts.push(`${count(s.lines)} ${s.lines === 1 ? 'line' : 'lines'}`)
     parts.push(`${count(s.chars)} chars`)
@@ -80,10 +86,10 @@ export function describeUploadSummary(s: UploadSummary): string {
 }
 
 /**
- * A warning about content that will NOT reach the model, or null. Both cases are
+ * A warning about content that will NOT reach the model, or null. Each case is
  * silent data loss the user can only avoid if we say so: a PDF with no text
- * layer isn't read at all, and only the first frame of a multi-frame image
- * (a scanned multi-page .tif) is OCR'd.
+ * layer isn't read at all, only the first frame of a multi-frame image (a
+ * scanned multi-page .tif) is OCR'd, and a picture-only deck yields no text.
  */
 export function attachmentWarning(s: UploadSummary): string | null {
   if ('width' in s) {
@@ -95,8 +101,19 @@ export function attachmentWarning(s: UploadSummary): string | null {
     }
     return null
   }
-  if ('pages' in s && s.kind === 'PDF' && s.pages > 0 && s.text_pages === 0) {
-    return "No text layer — this looks like a scan and can't be read yet."
+  if ('pages' in s && s.pages > 0 && s.text_pages === 0) {
+    if (s.kind === 'PDF') {
+      return "No text layer — this looks like a scan and can't be read yet."
+    }
+    // A picture-only deck is not a scan: read_document opens it and reports
+    // "(no text on this slide)" per slide. The read succeeds; it just returns
+    // nothing, so the scan wording would name a failure that never happens.
+    if (s.kind === 'PowerPoint presentation') {
+      return (
+        'No text on any slide — this deck is pictures only, so there is ' +
+        'nothing for the model to read.'
+      )
+    }
   }
   return null
 }
