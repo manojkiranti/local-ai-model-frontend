@@ -167,6 +167,44 @@ describe('useSessions attachment file_ids semantics', () => {
     expect(mockOpen.mock.calls[1][0]).not.toHaveProperty('department')
   })
 
+  // The failed first turn never learned a session id, so its retry CREATES the
+  // session. Dropping `department` there opened a General chat under a
+  // highlighted department chip — common once the workspace opens in one.
+  it('resends department on retry of a first turn that never got a session', async () => {
+    mockOpen.mockRejectedValueOnce(new GatewayError(502, 'upstream down'))
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('q', undefined, 'nrb')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    const assistant = result.current.messages.find((m) => m.role === 'assistant')!
+    expect(assistant.status).toBe('error')
+    mockOpen.mockResolvedValue(doneStream())
+    await act(async () => {
+      result.current.retry(assistant.id, 'q')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(mockOpen.mock.calls[1][0]).toMatchObject({ message: 'q', department: 'nrb' })
+    expect(mockOpen.mock.calls[1][0]).not.toHaveProperty('session_id', expect.any(String))
+  })
+
+  it('sends no department on retry once the session exists', async () => {
+    mockOpen.mockResolvedValue(doneStream({ error: true }))
+    const { result } = renderHook(() => useSessions())
+    await act(async () => {
+      result.current.send('q', undefined, 'nrb')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    const assistant = result.current.messages.find((m) => m.role === 'assistant')!
+    mockOpen.mockResolvedValue(doneStream())
+    await act(async () => {
+      result.current.retry(assistant.id, 'q')
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(mockOpen.mock.calls[1][0]).toMatchObject({ session_id: 'sess-1' })
+    expect(mockOpen.mock.calls[1][0]).not.toHaveProperty('department')
+  })
+
   it('turns a department conflict into start-a-new-chat guidance', async () => {
     mockOpen.mockRejectedValue(new GatewayError(409, 'Department mismatch'))
     const { result } = renderHook(() => useSessions())

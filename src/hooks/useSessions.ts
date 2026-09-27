@@ -69,6 +69,12 @@ export interface UIMessage {
   /** file_ids to re-send on Retry (mirrors the original turn's attachment). */
   retryFileIds?: string[]
   retryAttachmentName?: string
+  /**
+   * The scope a failed turn was sent with. A retry resends it, and `runTurn`
+   * still only puts it on the wire while no session exists — i.e. when the
+   * failed turn never learned its session id and the retry creates it.
+   */
+  retryDepartment?: string
   /** Present on a user bubble that carried an uploaded file. */
   attachment?: MessageAttachment
   /** Present when this turn read an image by OCR → renders the provenance note. */
@@ -402,6 +408,7 @@ export function useSessions() {
                 retryText: text,
                 retryFileIds: fileIds,
                 retryAttachmentName: attachmentName,
+                retryDepartment: department,
                 liveTools: undefined,
                 trace,
                 sources: null,
@@ -454,6 +461,7 @@ export function useSessions() {
             retryText: text,
             retryFileIds: fileIds,
             retryAttachmentName: attachmentName,
+            retryDepartment: department,
             liveTools: undefined,
           }))
           // The user message may have been persisted (e.g. 502) — refresh the list.
@@ -513,9 +521,11 @@ export function useSessions() {
 
   const retry = useCallback(
     (assistantId: string, text: string) => {
-      // Read fileIds from the current messages before updating state
-      const fileIds = messages.find((m) => m.id === assistantId)?.retryFileIds
-      const attachmentName = messages.find((m) => m.id === assistantId)?.retryAttachmentName
+      // Read the failed turn's inputs from the current messages before updating state
+      const failed = messages.find((m) => m.id === assistantId)
+      const fileIds = failed?.retryFileIds
+      const attachmentName = failed?.retryAttachmentName
+      const department = failed?.retryDepartment
 
       setMessages((prev) =>
         prev.map((m) => {
@@ -533,10 +543,11 @@ export function useSessions() {
             sources: null,
             retryFileIds: undefined,
             retryAttachmentName: undefined,
+            retryDepartment: undefined,
           }
         }),
       )
-      void runTurn(assistantId, text, fileIds, undefined, attachmentName)
+      void runTurn(assistantId, text, fileIds, department, attachmentName)
     },
     [runTurn, messages],
   )
