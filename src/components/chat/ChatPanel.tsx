@@ -5,6 +5,7 @@ import type { Department } from '@/lib/api'
 import { useAttachment } from '@/hooks/useAttachment'
 import { attachmentWarning, describeUploadSummary } from '@/lib/upload-validation'
 import { DepartmentBar } from './DepartmentBar'
+import { GeneralScopeNotice } from './GeneralScopeNotice'
 import { MessageList } from './MessageList'
 import { Composer } from './Composer'
 
@@ -131,6 +132,20 @@ export function ChatPanel({
           />
         )}
       </div>
+
+      {/* Exactly General: an unknown scope may be a department chat, and must
+          not be told it searches nothing. */}
+      {activeDepartment === null && (
+        <div className="bg-background px-6 pt-3">
+          <div className="mx-auto w-full max-w-[760px]">
+            <GeneralScopeNotice
+              departments={departments}
+              hasMessages={messages.length > 0}
+              onChoose={onDepartmentChange}
+            />
+          </div>
+        </div>
+      )}
 
       <Composer
         onSend={handleSend}
