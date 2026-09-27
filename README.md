@@ -35,7 +35,7 @@ Authoritative live spec: `http://localhost:8000/openapi.json` (Swagger at
 | GET  | `/users` | bearer + admin | Directory `{total, limit, offset, items:[UserOut]}`. Supports **`q`** (case-insensitive email substring; LIKE wildcards are literal), **`limit`** (≤ 200), and **`offset`**. Used by the Users screen for search + pagination, and unfiltered by the department-grant picker. |
 | PATCH | `/users/{id}` | bearer + admin | Activate / deactivate a user — body is **`{is_active}`** only (`role` is **not** patchable and is refused). Deactivation takes effect on the holder's next request (the user row is re-read per request). **409** refuses deactivating **your own account** or the **last active admin**; render it verbatim — it is a policy refusal, not an expired session. Reactivation is always allowed. |
 | POST | `/v1/chat` | bearer | **The one endpoint** — stateful, tool-capable, streaming. `{session_id?, message, department?, model?, stream?, options?, file_ids?}`. Send `department` only when creating a department-bound session; continuing turns send the `session_id` and the server remembers the binding. `stream:true` → **NDJSON of typed events** (`token` / `tool_call` / `tool_result` / `done`, **not** SSE) with the new session id in the **`X-Session-Id` response header**. Both shapes carry **`sources`** — the department documents the answer was grounded in — and on a stream it arrives **only on `done`** (citations resolve against the final answer's `[N]` markers). `null` means no corpus was searched; a general chat is always `null`. Not suppressed by `EXPOSE_TRACE`. |
-| GET  | `/v1/sessions` | bearer | Sidebar list, **cursor-paged**: `{items:[{id, title, created_at, updated_at, message_count}], next_cursor}`, newest-updated first. `?limit=` (default 30, max 100) and `?cursor=`. `next_cursor` is **opaque** — echo it back verbatim, never parse, build, or persist one; `null` means no further page. A malformed cursor is **400**. |
+| GET  | `/v1/sessions` | bearer | Sidebar list, **cursor-paged**: `{items:[{id, title, created_at, updated_at, message_count, department}], next_cursor}`, newest-updated first. `department` is the bound department's code, `null` for a general chat; a gateway that predates the field omits it, and the client then shows the reopened chat's scope as unknown rather than as General. `?limit=` (default 30, max 100) and `?cursor=`. `next_cursor` is **opaque** — echo it back verbatim, never parse, build, or persist one; `null` means no further page. A malformed cursor is **400**. |
 | GET  | `/v1/sessions/{id}` | bearer | **One page** of a thread — `{…, messages:[{id, seq, role, content, trace, sources, model, created_at}], next_cursor}`. Not the whole conversation: it is the **newest** `limit` messages, still **ascending by `seq`**, so `next_cursor` walks **backwards** into older history. Same `?limit=`/`?cursor=` and the same 400 on a bad cursor. Assistant rows whose turn called tools carry non-null `trace`; rows grounded in the corpus replay `sources` (its `download_url` is recomputed on read). 404 = gone. |
 | DELETE | `/v1/sessions/{id}` | bearer | Delete a conversation → 204. |
 | GET  | `/v1/tools` | bearer | Tools the model can use. |
@@ -127,6 +127,21 @@ unavailable"`, otherwise it surfaces `detail`.
   `Enter`, `Esc`). Changing scope starts a fresh conversation and sends the
   selected department code only on its first turn. Existing sessions continue
   without resending a scope; a 409 explains that a new department chat is needed.
+- **Opens in a department, not General** — General searches no documents, and
+  staff kept asking document questions there. The workspace opens in the
+  department last used in this browser, else `nrb` (the gateway grants it to
+  every account), else the first department by name; General is the launch
+  scope only for someone who holds no department. A reopened chat shows the
+  department it is bound to (`department` on the session row); on a gateway that
+  does not send it, no chip is pressed rather than a General that may be false.
+  Retrying a failed first turn resends its department, so it cannot land in
+  General under a highlighted department chip.
+- **General notice** — while the scope is General, a one-line note above the
+  composer says General chat does not search department documents and offers up
+  to three departments (recent, then NRB, then by name) one click away; from a
+  General chat that already has turns it says the switch starts a new chat. The
+  composer draft survives the switch. Someone with no department gets the
+  sentence alone.
 - **Source citations** — a department answer renders a **Sources** area under
   it: one entry per document (best first) with its pages (`pp. 4–6, 12`), type,
   and a **Download** that fetches the authenticated

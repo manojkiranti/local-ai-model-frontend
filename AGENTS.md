@@ -125,6 +125,9 @@ explicitly includes backend work.
 7. **Respect turn-scoped routing.** Send `department` only while creating a
    department-bound session. Send uploaded `file_ids` only on the attachment
    turn; a retry of that failed turn may resend them, but later turns must not.
+   A failed FIRST turn that never learned its session id is retried as a new
+   session, so its retry resends `department` too (`retryDepartment`) — or it
+   lands in General under a highlighted department chip.
 8. **Surface gateway errors faithfully.** FastAPI errors use
    `{ "detail": "..." }`. Preserve useful backend detail, including upload
    errors. Keep any deliberate status-specific wording covered by tests.
@@ -211,6 +214,19 @@ explicitly includes backend work.
     this build does not recognise stays visible and revocable. Note that
     `describeError` rewrites 404/502 into model-listing copy — use
     `gatewayDetail` wherever the gateway's own `detail` must reach the reader.
+19. **The chat scope has three states, and unknown is not General.** A code is
+    a department, `null` is General, `undefined` is NOT KNOWN — departments
+    still loading, or a reopened chat whose session row has no `department`
+    (a gateway that predates the field). Unknown presses no chip and shows no
+    General notice; never default it to `null`, which is how every reopened NRB
+    chat used to read as General. The workspace opens in a department
+    (`launchDepartment`: last used here, then `nrb`, then first by name) and in
+    General only for someone who holds none — General searches no documents,
+    and document questions asked there went unanswered. `useChatScope` derives
+    the scope until the user acts, then pins it on a chip, a reopened chat, or
+    a first turn sent, so a list that lands late cannot relabel an existing
+    chat. The session row's `department` is DISPLAY ONLY: continuing a chat
+    still sends no scope.
 
 ## Testing conventions
 
@@ -239,6 +255,11 @@ explicitly includes backend work.
   contract when possible.
 - **Chat/session behavior:** read `src/hooks/useSessions.ts` and
   `src/hooks/useSessions.test.ts`.
+- **Chat scope, launch department, the General notice:** read
+  `src/hooks/useChatScope.ts`, `rankedDepartments`/`launchDepartment` in
+  `src/lib/department-scopes.ts`, `src/components/chat/GeneralScopeNotice.tsx`,
+  the scope tests in `src/components/workspace/Workspace.test.tsx`, and hard
+  rule 19.
 - **Authentication:** read `src/context/AuthContext.tsx` and
   `src/lib/auth-token.ts`.
 - **Upload or attachment flow:** read `src/hooks/useAttachment.ts`,
