@@ -12,7 +12,8 @@ import { UserDetailPage } from '@/components/admin/UserDetailPage'
 import { FullScreenSpinner } from '@/components/routing/FullScreenSpinner'
 import { hasAnyDepartmentAtLeast } from '@/lib/department-scopes'
 import { useHealth } from '@/hooks/useHealth'
-import { useSessions } from '@/hooks/useSessions'
+import { useSessions, type AttachmentDescriptor } from '@/hooks/useSessions'
+import { useChatScope } from '@/hooks/useChatScope'
 import { useTheme } from '@/hooks/useTheme'
 import { useAuth } from '@/hooks/useAuth'
 import { useDepartments } from '@/hooks/useDepartments'
@@ -27,7 +28,11 @@ export function Workspace() {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window === 'undefined' || window.matchMedia('(min-width: 768px)').matches,
   )
-  const [activeDepartment, setActiveDepartment] = useState<string | null>(null)
+  const scope = useChatScope({
+    departments: departmentState.departments,
+    loading: departmentState.loading,
+    sessionOpen: chat.activeId !== null,
+  })
 
   // The RAG screen is no longer admin-only: curation is a per-department level,
   // so anyone holding editor or owner anywhere needs the entry point. Read from
@@ -36,16 +41,27 @@ export function Workspace() {
   const canManageRag = isAdmin || hasAnyDepartmentAtLeast(departmentState.departments, 'editor')
 
   const changeDepartment = (code: string | null) => {
-    if (code === activeDepartment) return
+    if (code === scope.scope) return
     chat.newChat()
-    setActiveDepartment(code)
+    scope.pin(code)
   }
 
   const selectSession = (id: string) => {
-    // Session DTOs do not expose their department. Continuing a session is safe
-    // because the gateway remembers its binding and the client sends no scope.
-    setActiveDepartment(null)
+    // Re-opening the open chat changes nothing, and must not trade a scope we
+    // know (it started here) for a row that may not carry one.
+    if (id === chat.activeId) return
+    // Display only: continuing a chat sends no scope, because the gateway reads
+    // the binding it stored. An absent `department` (an older gateway) pins
+    // "unknown", which shows no chip rather than a General that may be false.
+    scope.pin(chat.sessions.find((session) => session.id === id)?.department)
     void chat.selectSession(id)
+  }
+
+  const send = (text: string, attachment?: AttachmentDescriptor, department?: string) => {
+    // A new chat's first turn fixes its scope, including a General one sent
+    // before the department list landed.
+    if (chat.activeId === null) scope.pin(department ?? null)
+    chat.send(text, attachment, department)
   }
 
   useEffect(() => {
@@ -124,13 +140,13 @@ export function Workspace() {
                     sending={chat.sending}
                     loadingThread={chat.loadingThread}
                     reachable={health.reachable}
-                    onSend={chat.send}
+                    onSend={send}
                     onRetry={chat.retry}
                     onStop={chat.stop}
                     departments={departmentState.departments}
                     departmentsLoading={departmentState.loading}
                     departmentsError={departmentState.error}
-                    activeDepartment={activeDepartment}
+                    activeDepartment={scope.scope}
                     onDepartmentChange={changeDepartment}
                     hasOlderMessages={chat.hasOlderMessages}
                     loadingOlder={chat.loadingOlder}

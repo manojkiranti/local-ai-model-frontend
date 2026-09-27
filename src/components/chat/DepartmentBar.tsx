@@ -12,8 +12,12 @@ type Props = {
   departments: Department[]
   loading: boolean
   error: string | null
-  /** Active scope: a department code, or `null` for general chat. */
-  value: string | null
+  /**
+   * Active scope: a department code, `null` for general chat, or `undefined`
+   * when it is not known — departments still loading, or a reopened chat whose
+   * department the gateway did not say. Unknown presses no chip at all.
+   */
+  value: string | null | undefined
   onChange: (code: string | null) => void
 }
 

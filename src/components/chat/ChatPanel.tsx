@@ -23,7 +23,8 @@ interface ChatPanelProps {
   departments: Department[]
   departmentsLoading: boolean
   departmentsError: string | null
-  activeDepartment: string | null
+  /** A department code, `null` for General, `undefined` when not known. */
+  activeDepartment: string | null | undefined
   onDepartmentChange: (code: string | null) => void
   hasOlderMessages: boolean
   loadingOlder: boolean

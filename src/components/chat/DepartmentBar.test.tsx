@@ -115,6 +115,26 @@ describe('DepartmentBar', () => {
     expect(pressed[0].textContent).toContain('General')
   })
 
+  // An unknown scope (departments still loading, or a reopened chat from a
+  // gateway that does not say which department it belongs to) must not be
+  // reported as General: that was the bug that showed every NRB chat as General.
+  it('presses no chip while the scope is unknown', () => {
+    setup({ value: undefined })
+
+    const pressed = screen
+      .getAllByRole('button')
+      .filter((node) => node.getAttribute('aria-pressed') === 'true')
+    expect(pressed).toEqual([])
+  })
+
+  it('starts a General chat from an unknown scope', () => {
+    const { onChange } = setup({ value: undefined })
+
+    fireEvent.click(screen.getByRole('button', { name: 'General' }))
+
+    expect(onChange).toHaveBeenCalledWith(null)
+  })
+
   it('changes scope in one click on a chip', () => {
     const { onChange } = setup()
 

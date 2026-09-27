@@ -1,7 +1,8 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Department, DepartmentRole } from '@/lib/api'
+import type { Department, DepartmentRole, SessionSummary } from '@/lib/api'
+import type { ChatPanel } from '@/components/chat/ChatPanel'
 
 const departmentState = {
   departments: [] as Department[],
@@ -20,15 +21,34 @@ vi.mock('@/hooks/useTheme', () => ({ useTheme: () => ({ theme: 'dark', toggle: v
 vi.mock('@/hooks/useHealth', () => ({
   useHealth: () => ({ health: null, reachable: true, loading: false, error: null }),
 }))
+const sessionState = {
+  sessions: [] as SessionSummary[],
+  activeId: null as string | null,
+}
+const chat = {
+  send: vi.fn(),
+  newChat: vi.fn(),
+  // Stands in for the real hook's synchronous `setActiveId`, which lands in
+  // the same render as the scope pin that precedes it.
+  selectSession: vi.fn((id: string) => {
+    sessionState.activeId = id
+  }),
+}
 vi.mock('@/hooks/useSessions', () => ({
   useSessions: () => ({
-    sessions: [], activeId: null, messages: [], sending: false, loadingThread: false,
-    send: vi.fn(), retry: vi.fn(), stop: vi.fn(), newChat: vi.fn(),
-    selectSession: vi.fn(), removeSession: vi.fn(),
+    ...sessionState, messages: [], sending: false, loadingThread: false,
+    retry: vi.fn(), stop: vi.fn(), removeSession: vi.fn(), ...chat,
   }),
 }))
 vi.mock('@/components/layout/Header', () => ({ Header: () => <div /> }))
-vi.mock('@/components/chat/ChatPanel', () => ({ ChatPanel: () => <div>chat-panel</div> }))
+type ChatPanelProps = React.ComponentProps<typeof ChatPanel>
+const chatPanel = vi.fn<(props: ChatPanelProps) => void>()
+vi.mock('@/components/chat/ChatPanel', () => ({
+  ChatPanel: (props: ChatPanelProps) => {
+    chatPanel(props)
+    return <div>chat-panel</div>
+  },
+}))
 vi.mock('@/components/files/FilesPage', () => ({ FilesPage: () => <div /> }))
 vi.mock('@/components/admin/NrbOpsPage', () => ({ NrbOpsPage: () => <div /> }))
 vi.mock('@/components/admin/AdminRagPage', () => ({
@@ -96,5 +116,152 @@ describe('Workspace /admin access', () => {
     renderAdminRoute({ departments: [], loading: true })
     expect(screen.queryByText('chat-panel')).toBeNull()
     expect(screen.queryByText(/rag-screen/)).toBeNull()
+  })
+})
+
+function named(code: string, name: string): Department {
+  return { id: 1, code, name, is_active: true, created_at: '2026-08-01T00:00:00Z', role: 'viewer' }
+}
+
+const PROD = [named('it', 'IT'), named('nrb', 'Nepal Rastra Bank'), named('policy', 'Policy')]
+
+function row(id: string, title: string, department?: string | null): SessionSummary {
+  return {
+    id,
+    title,
+    created_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-09-01T00:00:00Z',
+    message_count: 2,
+    ...(department === undefined ? {} : { department }),
+  }
+}
+
+/** What the chat panel was last told the scope is. */
+const shownScope = () => chatPanel.mock.lastCall?.[0].activeDepartment
+const panel = () => chatPanel.mock.lastCall![0]
+
+describe('Workspace chat scope', () => {
+  const renderChat = () =>
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Workspace />
+      </MemoryRouter>,
+    )
+
+  beforeEach(() => {
+    // Desktop width, so the sidebar and its conversation list are mounted.
+    vi.stubGlobal('matchMedia', (media: string) => ({
+      matches: true,
+      media,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }))
+    window.localStorage.clear()
+    Object.assign(departmentState, { departments: PROD, loading: false, error: null })
+    Object.assign(sessionState, { sessions: [], activeId: null })
+    isAdmin = false
+    chatPanel.mockClear()
+    chat.send.mockClear()
+    chat.newChat.mockClear()
+    chat.selectSession.mockClear()
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    window.localStorage.clear()
+  })
+
+  it('opens the chat in NRB rather than General', () => {
+    renderChat()
+
+    expect(shownScope()).toBe('nrb')
+  })
+
+  it('opens in General for a user who holds no department', () => {
+    departmentState.departments = []
+
+    renderChat()
+
+    expect(shownScope()).toBeNull()
+  })
+
+  it('shows the department a reopened chat belongs to', () => {
+    sessionState.sessions = [row('s-it', 'Backup policy question', 'it')]
+    renderChat()
+
+    fireEvent.click(screen.getByText('Backup policy question'))
+
+    expect(chat.selectSession).toHaveBeenCalledWith('s-it')
+    expect(shownScope()).toBe('it')
+  })
+
+  it('shows General for a reopened general chat', () => {
+    sessionState.sessions = [row('s-gen', 'Draft an email', null)]
+    renderChat()
+
+    fireEvent.click(screen.getByText('Draft an email'))
+
+    expect(shownScope()).toBeNull()
+  })
+
+  // The bug this replaces: every reopened chat read as General, NRB ones too.
+  it('shows no scope for a reopened chat when the gateway does not say its department', () => {
+    sessionState.sessions = [row('s-old', 'Capital requirements')]
+    renderChat()
+
+    fireEvent.click(screen.getByText('Capital requirements'))
+
+    expect(shownScope()).toBeUndefined()
+  })
+
+  // The chat started here in NRB; its row is from a gateway that sends no
+  // `department`. Clicking the already-open chat must not forget what we know.
+  it('keeps the known scope when the open chat is clicked again', () => {
+    const view = renderChat()
+    act(() => panel().onDepartmentChange('policy'))
+    act(() => panel().onSend('first question', undefined, 'policy'))
+    Object.assign(sessionState, { activeId: 's-new', sessions: [row('s-new', 'First question')] })
+    view.rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <Workspace />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByText('First question'))
+
+    expect(shownScope()).toBe('policy')
+  })
+
+  it('starts a new chat in the department picked', () => {
+    renderChat()
+
+    act(() => panel().onDepartmentChange('policy'))
+
+    expect(chat.newChat).toHaveBeenCalledTimes(1)
+    expect(shownScope()).toBe('policy')
+  })
+
+  // A first turn sent before the list landed went to the gateway as General;
+  // the list arriving afterwards must not relabel that chat as NRB.
+  it('keeps General for a first turn sent while the departments were loading', () => {
+    Object.assign(departmentState, { departments: [], loading: true })
+    const view = renderChat()
+    expect(shownScope()).toBeUndefined()
+
+    act(() => panel().onSend('quick question', undefined, undefined))
+    Object.assign(departmentState, { departments: PROD, loading: false })
+    view.rerender(
+      <MemoryRouter initialEntries={['/']}>
+        <Workspace />
+      </MemoryRouter>,
+    )
+
+    expect(chat.send).toHaveBeenCalledWith('quick question', undefined, undefined)
+    expect(shownScope()).toBeNull()
   })
 })

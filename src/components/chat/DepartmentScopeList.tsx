@@ -15,8 +15,8 @@ type Props = {
   departments: Department[]
   loading: boolean
   error: string | null
-  /** Active scope: a department code, or `null` for general chat. */
-  value: string | null
+  /** Active scope: a department code, `null` for general chat, `undefined` unknown. */
+  value: string | null | undefined
   /** Reports the chosen scope. The owner decides what a re-pick means. */
   onSelect: (code: string | null) => void
   /** Escape pressed inside the list. */

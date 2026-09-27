@@ -63,6 +63,42 @@ export function scopeOptions(departments: Department[]): ScopeOption[] {
     .sort((a, b) => a.label.localeCompare(b.label))
 }
 
+/**
+ * NRB directives and circulars are public regulatory documents, so the gateway
+ * grants this department to every account. That makes it the one department
+ * almost everyone holds, and so the fallback when nothing else says where a
+ * user works.
+ */
+export const LAUNCH_FALLBACK_DEPARTMENT = 'nrb'
+
+/**
+ * Active departments in the order a user is most likely to want them: recently
+ * used here (newest first), then NRB, then the rest by name. `recents` is only a
+ * hint — a code the caller no longer holds, or whose department was disabled,
+ * is skipped rather than offered.
+ */
+export function rankedDepartments(departments: Department[], recents: string[]): ScopeOption[] {
+  const options = scopeOptions(departments)
+  const ranked: ScopeOption[] = []
+  const take = (option: ScopeOption | undefined) => {
+    if (option && !ranked.includes(option)) ranked.push(option)
+  }
+  const byCode = (code: string) => options.find((option) => option.code === code)
+  for (const code of recents) take(byCode(code))
+  take(byCode(LAUNCH_FALLBACK_DEPARTMENT))
+  for (const option of options) take(option)
+  return ranked
+}
+
+/**
+ * The scope a fresh workspace opens in. General chat searches no documents, and
+ * most document questions asked there went unanswered, so a user starts in a
+ * department and General is chosen only by someone who holds none.
+ */
+export function launchDepartment(departments: Department[], recents: string[]): string | null {
+  return rankedDepartments(departments, recents)[0]?.code ?? null
+}
+
 /** Departments are not uniquely named, so a search must also match the code. */
 export function scopeMatches(option: ScopeOption, query: string): boolean {
   const needle = query.toLowerCase()

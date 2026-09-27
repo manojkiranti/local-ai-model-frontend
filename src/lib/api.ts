@@ -137,6 +137,12 @@ export interface SessionSummary {
   created_at: string
   updated_at: string
   message_count: number
+  /**
+   * The code of the department this chat is bound to, `null` for a general chat.
+   * ABSENT on a gateway that predates the field — which says nothing about the
+   * chat, so it must read as "unknown", never as General.
+   */
+  department?: string | null
 }
 
 /**
