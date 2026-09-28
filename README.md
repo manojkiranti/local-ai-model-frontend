@@ -136,6 +136,14 @@ unavailable"`, otherwise it surfaces `detail`.
   does not send it, no chip is pressed rather than a General that may be false.
   Retrying a failed first turn resends its department, so it cannot land in
   General under a highlighted department chip.
+- **Starter cards follow the tab** — an empty chat's cards and subtitle come from
+  `startersFor(scope)` in `src/lib/starter-prompts.ts`. The NRB tab offers five
+  questions checked on 2026-09-28 against the real NRB corpus (each finds its
+  document in the top 2 results; the exchange-rate one uses the live forex tool),
+  so re-run that check before rewording one. General offers web research, a
+  self-contained Excel example and the tool list — nothing that needs HRMS. Any
+  other department gets one card about its own documents, never General's cards;
+  an unknown scope gets none.
 - **General notice** — while the scope is General, a one-line note above the
   composer says General chat does not search department documents and offers up
   to three departments (recent, then NRB, then by name) one click away; from a

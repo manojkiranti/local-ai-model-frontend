@@ -125,6 +125,8 @@ export function ChatPanel({
             messages={messages}
             onExample={handleSend}
             canSend={canSend}
+            scope={activeDepartment}
+            departmentName={departments.find((department) => department.code === activeDepartment)?.name}
             onRetry={handleRetry}
             hasOlder={hasOlderMessages}
             loadingOlder={loadingOlder}

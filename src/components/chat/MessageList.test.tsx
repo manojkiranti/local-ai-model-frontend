@@ -20,6 +20,8 @@ function renderList(
       messages={props.messages ?? [message('m1', 'user'), message('m2', 'assistant')]}
       onExample={props.onExample ?? vi.fn()}
       canSend={props.canSend ?? true}
+      scope={'scope' in props ? props.scope : null}
+      departmentName={props.departmentName}
       hasOlder={props.hasOlder}
       loadingOlder={props.loadingOlder}
       onLoadOlder={props.onLoadOlder}
@@ -66,6 +68,7 @@ describe('MessageList older-page control', () => {
         messages={[message('m1', 'user'), message('m2', 'assistant'), ...newest]}
         onExample={vi.fn()}
         canSend
+        scope={null}
         hasOlder={false}
       />,
     )
@@ -77,6 +80,7 @@ describe('MessageList older-page control', () => {
         messages={[...newest, message('m5', 'assistant')]}
         onExample={vi.fn()}
         canSend
+        scope={null}
         hasOlder={false}
       />,
     )
@@ -86,5 +90,34 @@ describe('MessageList older-page control', () => {
   it('keeps the empty state free of paging chrome', () => {
     renderList({ messages: [], hasOlder: true })
     expect(screen.queryByRole('button', { name: /load older messages/i })).toBeNull()
+  })
+})
+
+// The starter cards used to be one list for every tab, so the NRB tab offered
+// HR-system cards that fail on a deployment without HRMS.
+describe('MessageList starter cards', () => {
+  afterEach(cleanup)
+
+  it('sends a tested NRB question from the NRB tab', () => {
+    const onExample = vi.fn()
+    renderList({ messages: [], scope: 'nrb', departmentName: 'Nepal Rastra Bank', onExample })
+
+    fireEvent.click(screen.getByRole('button', { name: /Interest rates/i }))
+
+    expect(onExample).toHaveBeenCalledWith("What is NRB's interest rate corridor and how does it work?")
+    expect(screen.queryByRole('button', { name: /HR system/i })).toBeNull()
+  })
+
+  it('offers General no HR-system card', () => {
+    renderList({ messages: [], scope: null })
+
+    expect(screen.getByRole('button', { name: /Web research/i })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: /HR system/i })).toBeNull()
+  })
+
+  it('offers no cards while the scope is unknown', () => {
+    renderList({ messages: [], scope: undefined })
+
+    expect(screen.queryAllByRole('button')).toEqual([])
   })
 })

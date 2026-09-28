@@ -99,3 +99,13 @@ describe('ChatPanel General notice', () => {
     expect(notice()).toBeNull()
   })
 })
+
+describe('ChatPanel starter cards', () => {
+  afterEach(cleanup)
+
+  it("shows the active department's starters on an empty chat", () => {
+    render(<ChatPanel {...props({ activeDepartment: 'policy' })} />)
+
+    expect(screen.getByRole('button', { name: /Ask about Policy documents/ })).not.toBeNull()
+  })
+})
