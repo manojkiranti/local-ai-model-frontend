@@ -4,6 +4,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { Header } from '@/components/layout/Header'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { ChatPanel } from '@/components/chat/ChatPanel'
+import { FilePreviewPanel } from '@/components/chat/FilePreviewPanel'
 import { FilesPage } from '@/components/files/FilesPage'
 import { AdminRagPage } from '@/components/admin/AdminRagPage'
 import { NrbOpsPage } from '@/components/admin/NrbOpsPage'
@@ -11,6 +12,7 @@ import { UsersPage } from '@/components/admin/UsersPage'
 import { UserDetailPage } from '@/components/admin/UserDetailPage'
 import { FullScreenSpinner } from '@/components/routing/FullScreenSpinner'
 import { hasAnyDepartmentAtLeast } from '@/lib/department-scopes'
+import type { FileRef } from '@/lib/agent-api'
 import { useHealth } from '@/hooks/useHealth'
 import { useSessions, type AttachmentDescriptor } from '@/hooks/useSessions'
 import { useChatScope } from '@/hooks/useChatScope'
@@ -33,6 +35,9 @@ export function Workspace() {
     loading: departmentState.loading,
     sessionOpen: chat.activeId !== null,
   })
+  // Scoped to the chat route only (reset isn't needed elsewhere — navigating
+  // away unmounts this element, and the panel is meaningless off the chat page).
+  const [previewFile, setPreviewFile] = useState<FileRef | null>(null)
 
   // The RAG screen is no longer admin-only: curation is a per-department level,
   // so anyone holding editor or owner anywhere needs the entry point. Read from
@@ -135,23 +140,31 @@ export function Workspace() {
               <Route
                 index
                 element={
-                  <ChatPanel
-                    messages={chat.messages}
-                    sending={chat.sending}
-                    loadingThread={chat.loadingThread}
-                    reachable={health.reachable}
-                    onSend={send}
-                    onRetry={chat.retry}
-                    onStop={chat.stop}
-                    departments={departmentState.departments}
-                    departmentsLoading={departmentState.loading}
-                    departmentsError={departmentState.error}
-                    activeDepartment={scope.scope}
-                    onDepartmentChange={changeDepartment}
-                    hasOlderMessages={chat.hasOlderMessages}
-                    loadingOlder={chat.loadingOlder}
-                    onLoadOlder={chat.loadOlderMessages}
-                  />
+                  <div className="flex h-full min-h-0">
+                    <div className="min-w-0 flex-1">
+                      <ChatPanel
+                        messages={chat.messages}
+                        sending={chat.sending}
+                        loadingThread={chat.loadingThread}
+                        reachable={health.reachable}
+                        onSend={send}
+                        onRetry={chat.retry}
+                        onStop={chat.stop}
+                        departments={departmentState.departments}
+                        departmentsLoading={departmentState.loading}
+                        departmentsError={departmentState.error}
+                        activeDepartment={scope.scope}
+                        onDepartmentChange={changeDepartment}
+                        hasOlderMessages={chat.hasOlderMessages}
+                        loadingOlder={chat.loadingOlder}
+                        onLoadOlder={chat.loadOlderMessages}
+                        onPreviewFile={setPreviewFile}
+                      />
+                    </div>
+                    {previewFile && (
+                      <FilePreviewPanel file={previewFile} onClose={() => setPreviewFile(null)} />
+                    )}
+                  </div>
                 }
               />
               <Route path="files" element={<FilesPage />} />

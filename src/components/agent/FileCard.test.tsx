@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -77,6 +77,26 @@ describe('FileCard', () => {
 
     const img = await screen.findByAltText('chart.svg')
     expect(img.getAttribute('src')).toBe('blob:generated')
+  })
+
+  it('offers a Preview button that opens the file in the side panel, separate from downloading', async () => {
+    mockFetchFile.mockResolvedValue(response(PPTX, 'attachment; filename="deck.pptx"'))
+    const onPreview = vi.fn()
+
+    render(<FileCard file={{ id: 'file-5' }} onPreview={onPreview} />)
+
+    const previewButton = await screen.findByRole('button', { name: 'Preview' })
+    fireEvent.click(previewButton)
+    expect(onPreview).toHaveBeenCalledWith({ id: 'file-5' })
+  })
+
+  it('omits the Preview button when no onPreview handler is given', async () => {
+    mockFetchFile.mockResolvedValue(response(PPTX, 'attachment; filename="deck.pptx"'))
+
+    render(<FileCard file={{ id: 'file-6' }} />)
+
+    await screen.findByText('deck.pptx')
+    expect(screen.queryByRole('button', { name: 'Preview' })).toBeNull()
   })
 
   it('falls back to the tool-reported filename when the header carries none', async () => {

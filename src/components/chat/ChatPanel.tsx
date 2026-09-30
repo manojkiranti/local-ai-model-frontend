@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { AlertTriangle, Loader2, Wrench } from 'lucide-react'
 import type { AttachmentDescriptor, UIMessage } from '@/hooks/useSessions'
 import type { Department } from '@/lib/api'
+import type { FileRef } from '@/lib/agent-api'
 import { useAttachment } from '@/hooks/useAttachment'
 import { attachmentWarning, describeUploadSummary } from '@/lib/upload-validation'
 import { DepartmentBar } from './DepartmentBar'
@@ -30,6 +31,8 @@ interface ChatPanelProps {
   hasOlderMessages: boolean
   loadingOlder: boolean
   onLoadOlder: () => void
+  /** Opens a generated file in the chat window's right-side preview panel. */
+  onPreviewFile?: (file: FileRef) => void
 }
 
 export function ChatPanel({
@@ -48,6 +51,7 @@ export function ChatPanel({
   hasOlderMessages,
   loadingOlder,
   onLoadOlder,
+  onPreviewFile,
 }: ChatPanelProps) {
   const { attachment, pick, clear } = useAttachment()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -131,6 +135,7 @@ export function ChatPanel({
             hasOlder={hasOlderMessages}
             loadingOlder={loadingOlder}
             onLoadOlder={handleLoadOlder}
+            onPreviewFile={onPreviewFile}
           />
         )}
       </div>

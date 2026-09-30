@@ -625,6 +625,74 @@ export async function fetchFile(id: string, signal?: AbortSignal): Promise<Respo
   return res
 }
 
+/** One highlight-number card — create_pptx's own {value, label, note?} shape. */
+export interface StatSpec {
+  value: string
+  label: string
+  note?: string
+}
+
+/** create_pptx's own {chart_type, labels, series} shape — identical to create_chart's. */
+export interface ChartSpec {
+  chart_type: 'bar' | 'hbar' | 'line' | 'area' | 'pie' | 'donut'
+  labels: string[]
+  series: { name?: string; data: number[] }[]
+}
+
+/** One slide's content — the exact shape create_pptx validates and renders from. */
+export interface SlideSpec {
+  title?: string
+  bullets?: string[]
+  table?: { headers?: string[]; rows: (string | number)[][] }
+  stats?: StatSpec[]
+  image?: { file_id: string; caption?: string }
+  chart?: ChartSpec
+}
+
+/** The structured content behind a generated deck (not a re-extraction of the
+ * saved .pptx bytes — the exact args the tool built it from). */
+export interface DeckPreview {
+  title: string
+  subtitle: string
+  slides: SlideSpec[]
+}
+
+/**
+ * The org's own pptx template artwork (`GET /v1/branding/pptx-cover` /
+ * `/pptx-header`) — shared, not tied to any file, so the deck preview panel
+ * can render slides that actually look like the template instead of a plain
+ * placeholder color. 404 means this deployment has no branded template
+ * configured; callers should fall back to a plain color, not surface an error.
+ */
+export async function fetchPptxCoverBackground(signal?: AbortSignal): Promise<Response> {
+  const res = await rawFetch('/v1/branding/pptx-cover', { method: 'GET' }, signal)
+  if (!res.ok) throw await errorFromResponse(res)
+  return res
+}
+
+export async function fetchPptxHeaderBackground(signal?: AbortSignal): Promise<Response> {
+  const res = await rawFetch('/v1/branding/pptx-header', { method: 'GET' }, signal)
+  if (!res.ok) throw await errorFromResponse(res)
+  return res
+}
+
+/**
+ * Fetch the structured preview behind a generated file (`GET
+ * /v1/files/{id}/preview`) — currently only recorded for create_pptx decks,
+ * so the frontend can render a faithful per-slide view instead of parsing the
+ * binary file (which has no browser-native renderer). 404 means no preview
+ * was recorded for this file — not every tool provides one, and files
+ * predating this feature have none — so callers should treat that as "fall
+ * back to the raw-file view", not as an error to surface.
+ */
+export async function fetchFilePreview(id: string, signal?: AbortSignal): Promise<DeckPreview> {
+  return request<DeckPreview>(
+    `/v1/files/${encodeURIComponent(id)}/preview`,
+    { method: 'GET' },
+    signal,
+  )
+}
+
 /**
  * Whether `path` still points at the gateway once `rawFetch` concatenates it
  * onto API_BASE.

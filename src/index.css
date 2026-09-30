@@ -47,6 +47,17 @@
   --sidebar: #1d2230;
   --sidebar-foreground: #f5f6f8;
   --sidebar-muted-foreground: #97a1b2;
+
+  /* Categorical chart series (deck-preview bar/line/pie charts). Slot 1 is
+     --primary itself, reused rather than duplicated; slots 2-4 are chosen and
+     validated together with it as one 4-color categorical set (dataviz
+     skill's validate_palette.js: light — CVD ΔE 9.1, normal-vision ΔE 22.9,
+     both clear the >=8/>=15 floors; the two lower-contrast slots carry direct
+     value labels in the chart itself, satisfying the relief rule for their
+     contrast WARN). Never cycle past 4 — a 5th series folds into "Other". */
+  --chart-2: #2a78d6;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
 }
 
 .dark {
@@ -77,6 +88,13 @@
   --border: #2a3040;
   --input: #2a3040;
   --ring: #ff3b4e;
+
+  /* Same 4-color categorical set, dark-surface steps — validated separately
+     (dataviz skill: CVD ΔE 8.4, normal-vision ΔE 19.8, all >= 3:1 on the dark
+     surface), not an automatic flip of the light values. */
+  --chart-2: #3987e5;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
 }
 
 /* Map semantic vars onto Tailwind color/utility namespaces. */
@@ -103,6 +121,10 @@
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-muted-foreground: var(--sidebar-muted-foreground);
+  --color-chart-1: var(--primary);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

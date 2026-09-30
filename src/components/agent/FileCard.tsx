@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   AlertTriangle,
   Download,
+  Eye,
   File as FileIcon,
   FileSpreadsheet,
   Image as ImageIcon,
@@ -34,8 +35,19 @@ const isDeck = (ct: string) =>
  * can't run scripts), HTML previews in a sandboxed iframe (no allow-scripts),
  * spreadsheets, decks and everything else get a download chip — a browser
  * renders none of those. The blob URL is revoked on unmount.
+ *
+ * `onPreview` (optional) adds a separate "Preview" button that opens the file
+ * in the chat window's right-side panel (`FilePreviewPanel`) instead of — or
+ * alongside — the inline rendering here; omit it to keep this card
+ * download-only, e.g. in a context with no panel to open it in.
  */
-export function FileCard({ file }: { file: FileRef }) {
+export function FileCard({
+  file,
+  onPreview,
+}: {
+  file: FileRef
+  onPreview?: (file: FileRef) => void
+}) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -123,6 +135,22 @@ export function FileCard({ file }: { file: FileRef }) {
     </a>
   )
 
+  // A distinct action from the chip above: this opens the file in the chat
+  // window's right-side panel rather than downloading it. Offered for every
+  // file type — the panel itself decides what it can actually render,
+  // falling back to a "download it instead" message for formats with no
+  // browser-native viewer (PPTX/DOCX/XLSX today).
+  const previewButton = onPreview ? (
+    <button
+      type="button"
+      onClick={() => onPreview(file)}
+      className="inline-flex w-fit items-center gap-2 rounded-xl border bg-card px-3.5 py-2.5 text-sm font-semibold shadow-sm transition-colors hover:border-primary hover:text-primary"
+    >
+      <Eye className="size-4" />
+      Preview
+    </button>
+  ) : null
+
   if (isImage(loaded.contentType)) {
     return (
       <div className="flex flex-col gap-2">
@@ -130,7 +158,10 @@ export function FileCard({ file }: { file: FileRef }) {
           {/* <img> (not innerHTML) so SVG can't execute scripts. */}
           <img src={loaded.blobUrl} alt={loaded.filename} className="mx-auto block max-w-full" />
         </div>
-        {downloadChip}
+        <div className="flex flex-wrap gap-2">
+          {downloadChip}
+          {previewButton}
+        </div>
       </div>
     )
   }
@@ -145,11 +176,21 @@ export function FileCard({ file }: { file: FileRef }) {
           sandbox=""
           className="h-[400px] w-full rounded-xl border bg-white"
         />
-        {downloadChip}
+        <div className="flex flex-wrap gap-2">
+          {downloadChip}
+          {previewButton}
+        </div>
       </div>
     )
   }
 
-  // Spreadsheets, decks, and anything else: download only.
-  return downloadChip
+  // Spreadsheets, decks, and anything else: no inline rendering here, but the
+  // panel can still open (image/PDF get a real preview there too; everything
+  // else gets the same "download it instead" message the panel shows).
+  return (
+    <div className="flex flex-wrap gap-2">
+      {downloadChip}
+      {previewButton}
+    </div>
+  )
 }

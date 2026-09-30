@@ -7,6 +7,7 @@ import { FileCard } from '@/components/agent/FileCard'
 import { TracePanel } from '@/components/agent/TracePanel'
 import { ToolTimeline } from '@/components/agent/ToolTimeline'
 import { stripFileRefs } from '@/lib/agent-api'
+import type { FileRef } from '@/lib/agent-api'
 import type { UIMessage } from '@/hooks/useSessions'
 import { ImageLightbox } from './ImageLightbox'
 import { ImageThumb } from './ImageThumb'
@@ -23,6 +24,8 @@ interface MessageBubbleProps {
    * names an older file, so the UI must not imply both are equally available.
    */
   attachmentSuperseded?: boolean
+  /** Opens a generated file in the chat window's right-side preview panel. */
+  onPreviewFile?: (file: FileRef) => void
 }
 
 export function MessageBubble({
@@ -30,6 +33,7 @@ export function MessageBubble({
   onRetry,
   canRetry = true,
   attachmentSuperseded = false,
+  onPreviewFile,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false)
   const [imageOpen, setImageOpen] = useState(false)
@@ -150,7 +154,7 @@ export function MessageBubble({
         {hasFiles && (
           <div className="flex flex-col gap-2">
             {message.files!.map((file) => (
-              <FileCard key={file.id} file={file} />
+              <FileCard key={file.id} file={file} onPreview={onPreviewFile} />
             ))}
           </div>
         )}

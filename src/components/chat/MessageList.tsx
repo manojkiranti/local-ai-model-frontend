@@ -4,6 +4,7 @@ import { MessageBubble } from './MessageBubble'
 import { BurstLogo } from '@/components/brand/BurstLogo'
 import { APP_NAME } from '@/lib/branding'
 import { startersFor } from '@/lib/starter-prompts'
+import type { FileRef } from '@/lib/agent-api'
 import type { UIMessage } from '@/hooks/useSessions'
 
 interface MessageListProps {
@@ -19,6 +20,8 @@ interface MessageListProps {
   hasOlder?: boolean
   loadingOlder?: boolean
   onLoadOlder?: () => void
+  /** Opens a generated file in the chat window's right-side preview panel. */
+  onPreviewFile?: (file: FileRef) => void
 }
 
 export function MessageList({
@@ -31,6 +34,7 @@ export function MessageList({
   hasOlder = false,
   loadingOlder = false,
   onLoadOlder,
+  onPreviewFile,
 }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const last = messages[messages.length - 1]
@@ -117,6 +121,7 @@ export function MessageList({
           onRetry={onRetry}
           canRetry={canSend}
           attachmentSuperseded={Boolean(m.attachment) && m.id !== lastAttachmentId}
+          onPreviewFile={onPreviewFile}
         />
       ))}
       <div ref={bottomRef} />
