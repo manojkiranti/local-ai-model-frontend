@@ -100,6 +100,13 @@ export interface Source {
    * `fetchDepartmentDocument` — never rebuild it, never persist it.
    */
   download_url?: string | null
+  /**
+   * PDF sources only: the view-only page viewer (`GET …/pages`, then
+   * `…/pages/{n}` for each page as a PNG). Server-derived like `download_url`
+   * and used the same way. Downloading is admin-only, so this is how everyone
+   * else reads a cited PDF.
+   */
+  pages_url?: string | null
   /** "nrb" for a catalog document, else the document's own source. */
   origin?: string | null
   // NRB-only below: the document's public page, and how its text was extracted.
@@ -736,6 +743,42 @@ export async function fetchDepartmentDocument(
     throw new Error('This citation has no usable download link.')
   }
   const res = await rawFetch(downloadUrl, { method: 'GET' }, signal)
+  if (!res.ok) throw await errorFromResponse(res)
+  return res
+}
+
+/**
+ * How many pages a cited PDF has (`GET {pages_url}`), for the view-only page
+ * viewer. `pagesUrl` is the server-derived `Source.pages_url`, passed through
+ * verbatim after the same same-origin check as `fetchDepartmentDocument`.
+ */
+export async function fetchDocumentPageCount(
+  pagesUrl: string,
+  signal?: AbortSignal,
+): Promise<number> {
+  if (!staysOnGatewayOrigin(pagesUrl)) {
+    throw new Error('This citation has no usable view link.')
+  }
+  const res = await rawFetch(pagesUrl, { method: 'GET' }, signal)
+  if (!res.ok) throw await errorFromResponse(res)
+  const body = (await res.json()) as { page_count: number }
+  return body.page_count
+}
+
+/**
+ * One page of a cited PDF as a PNG (`GET {pages_url}/{page}`, 1-based). The
+ * route's contract is `pages_url` plus the page number; nothing else about the
+ * URL is rebuilt. Caller turns the body into a blob URL and revokes it.
+ */
+export async function fetchDocumentPage(
+  pagesUrl: string,
+  page: number,
+  signal?: AbortSignal,
+): Promise<Response> {
+  if (!staysOnGatewayOrigin(pagesUrl)) {
+    throw new Error('This citation has no usable view link.')
+  }
+  const res = await rawFetch(`${pagesUrl}/${page}`, { method: 'GET' }, signal)
   if (!res.ok) throw await errorFromResponse(res)
   return res
 }

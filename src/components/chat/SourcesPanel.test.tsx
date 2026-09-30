@@ -3,11 +3,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return { ...actual, fetchDepartmentDocument: vi.fn() }
+  return {
+    ...actual,
+    fetchDepartmentDocument: vi.fn(),
+    fetchDocumentPageCount: vi.fn(),
+    fetchDocumentPage: vi.fn(),
+  }
 })
 
-import { GatewayError, fetchDepartmentDocument, type Source } from '@/lib/api'
+import type { ReactElement } from 'react'
+import {
+  GatewayError,
+  fetchDepartmentDocument,
+  fetchDocumentPage,
+  fetchDocumentPageCount,
+  type Source,
+} from '@/lib/api'
+import { AuthContext, type AuthContextValue } from '@/context/AuthContext'
 import { SourcesPanel } from '@/components/chat/SourcesPanel'
+
+/** Downloading is admin-only; render inside an auth context with that role. */
+function renderAs(isAdmin: boolean, ui: ReactElement) {
+  const value = { isAdmin } as AuthContextValue
+  return render(<AuthContext.Provider value={value}>{ui}</AuthContext.Provider>)
+}
+const renderAsAdmin = (ui: ReactElement) => renderAs(true, ui)
 
 const mockFetchDocument = vi.mocked(fetchDepartmentDocument)
 
@@ -97,7 +117,7 @@ describe('the three states of sources', () => {
   })
 
   it('lists a cited document with its pages', () => {
-    render(<SourcesPanel sources={[source()]} />)
+    renderAsAdmin(<SourcesPanel sources={[source()]} />)
     expect(screen.getByText('Leave policy')).toBeTruthy()
     expect(screen.getByText('pp. 4–6')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Download/ })).toBeTruthy()
@@ -190,7 +210,7 @@ describe('machine-recovered provenance', () => {
 // The route is behind JWT: an <a href> to it sends no bearer token and 401s.
 describe('downloading a cited document', () => {
   it('fetches the server-derived link with the api client and saves a blob', async () => {
-    render(<SourcesPanel sources={[source()]} />)
+    renderAsAdmin(<SourcesPanel sources={[source()]} />)
     fireEvent.click(screen.getByRole('button', { name: /Download/ }))
     await waitFor(() =>
       expect(mockFetchDocument).toHaveBeenCalledWith(
@@ -204,7 +224,7 @@ describe('downloading a cited document', () => {
   })
 
   it('exposes no anchor pointing at the authenticated endpoint', () => {
-    render(<SourcesPanel sources={[recovered()]} />)
+    renderAsAdmin(<SourcesPanel sources={[recovered()]} />)
     const hrefs = screen
       .getAllByRole('link')
       .map((link) => link.getAttribute('href') ?? '')
@@ -212,7 +232,7 @@ describe('downloading a cited document', () => {
   })
 
   it('offers no download when the gateway sent no link', () => {
-    render(<SourcesPanel sources={[source({ download_url: null })]} />)
+    renderAsAdmin(<SourcesPanel sources={[source({ download_url: null })]} />)
     expect(screen.queryByRole('button', { name: /Download/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /View/ })).toBeNull()
     expect(screen.getByText('No file')).toBeTruthy()
@@ -220,7 +240,7 @@ describe('downloading a cited document', () => {
 
   it('explains a 403 as a missing department grant', async () => {
     mockFetchDocument.mockRejectedValue(new GatewayError(403, 'No access to department hr'))
-    render(<SourcesPanel sources={[source()]} />)
+    renderAsAdmin(<SourcesPanel sources={[source()]} />)
     fireEvent.click(screen.getByRole('button', { name: /Download/ }))
     await waitFor(() =>
       expect(
@@ -231,7 +251,7 @@ describe('downloading a cited document', () => {
 
   it('explains a 404 as a document that is gone', async () => {
     mockFetchDocument.mockRejectedValue(new GatewayError(404, 'Unknown document'))
-    render(<SourcesPanel sources={[source()]} />)
+    renderAsAdmin(<SourcesPanel sources={[source()]} />)
     fireEvent.click(screen.getByRole('button', { name: /Download/ }))
     await waitFor(() =>
       expect(screen.getByText('This document is no longer available.')).toBeTruthy(),
@@ -243,7 +263,7 @@ describe('downloading a cited document', () => {
 // Office formats it cannot render get download only.
 describe('viewing a cited document in the browser', () => {
   it('offers View for a PDF and opens the authed blob in a new tab', async () => {
-    render(<SourcesPanel sources={[source({ file_type: 'pdf' })]} />)
+    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'pdf' })]} />)
     fireEvent.click(screen.getByRole('button', { name: /View/ }))
     await waitFor(() =>
       expect(mockFetchDocument).toHaveBeenCalledWith(
@@ -259,19 +279,19 @@ describe('viewing a cited document in the browser', () => {
 
   it('offers View for text and CSV', () => {
     cleanup()
-    render(<SourcesPanel sources={[source({ file_type: 'text' })]} />)
+    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'text' })]} />)
     expect(screen.getByRole('button', { name: /View/ })).toBeTruthy()
     cleanup()
-    render(<SourcesPanel sources={[source({ file_type: 'csv' })]} />)
+    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'csv' })]} />)
     expect(screen.getByRole('button', { name: /View/ })).toBeTruthy()
   })
 
   it('offers no View for docx or xlsx — download only', () => {
-    render(<SourcesPanel sources={[source({ file_type: 'docx' })]} />)
+    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'docx' })]} />)
     expect(screen.queryByRole('button', { name: /View/ })).toBeNull()
     expect(screen.getByRole('button', { name: /Download/ })).toBeTruthy()
     cleanup()
-    render(<SourcesPanel sources={[source({ file_type: 'xlsx' })]} />)
+    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'xlsx' })]} />)
     expect(screen.queryByRole('button', { name: /View/ })).toBeNull()
     expect(screen.getByRole('button', { name: /Download/ })).toBeTruthy()
   })
@@ -286,10 +306,52 @@ describe('viewing a cited document in the browser', () => {
       }),
       blob: async () => new Blob(['x'], { type: 'application/octet-stream' }),
     } as Response)
-    render(<SourcesPanel sources={[source({ file_type: 'pdf' })]} />)
+    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'pdf' })]} />)
     fireEvent.click(screen.getByRole('button', { name: /View/ }))
     await waitFor(() => expect(clicked.length).toBe(1))
     expect(clicked[0].target).toBe('')
     expect(clicked[0].download).toBe('stored.pdf')
+  })
+})
+
+// Downloading is admin-only (the gateway 403s everyone else). A non-admin reads
+// a PDF through the view-only page viewer instead, fed from `pages_url`.
+describe('a non-admin reading a cited document', () => {
+  const pdf = () =>
+    source({ pages_url: '/v1/departments/hr/documents/doc-1/pages', pages: [2] })
+
+  it('offers no Download, and no raw file fetch happens', () => {
+    renderAs(false, <SourcesPanel sources={[pdf()]} />)
+    expect(screen.queryByRole('button', { name: /Download/ })).toBeNull()
+    expect(mockFetchDocument).not.toHaveBeenCalled()
+  })
+
+  it('fails closed to non-admin outside an auth provider', () => {
+    render(<SourcesPanel sources={[pdf()]} />)
+    expect(screen.queryByRole('button', { name: /Download/ })).toBeNull()
+  })
+
+  it('opens a PDF in the view-only viewer as page images', async () => {
+    vi.mocked(fetchDocumentPageCount).mockResolvedValue(2)
+    vi.mocked(fetchDocumentPage).mockResolvedValue({
+      blob: async () => new Blob(['png'], { type: 'image/png' }),
+    } as Response)
+    renderAs(false, <SourcesPanel sources={[pdf()]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /View Leave policy \(view only\)/ }))
+
+    expect(await screen.findByRole('dialog', { name: /Leave policy \(view only\)/ })).toBeTruthy()
+    expect(await screen.findByAltText('Page 2')).toBeTruthy()
+    expect(vi.mocked(fetchDocumentPageCount)).toHaveBeenCalledWith(
+      '/v1/departments/hr/documents/doc-1/pages',
+      expect.anything(),
+    )
+    expect(mockFetchDocument).not.toHaveBeenCalled()
+  })
+
+  it('says download is admin-only when a non-PDF has no viewer', () => {
+    renderAs(false, <SourcesPanel sources={[source({ file_type: 'docx', pages_url: null })]} />)
+    expect(screen.queryByRole('button', { name: /View|Download/ })).toBeNull()
+    expect(screen.getByText('Download: admins only')).toBeTruthy()
   })
 })

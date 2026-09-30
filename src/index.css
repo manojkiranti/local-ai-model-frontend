@@ -245,3 +245,12 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/* While the view-only document viewer is open, printing produces a blank page:
+   the viewer is for reading, and Ctrl+P is also intercepted in the viewer
+   itself. The browser's own Print menu cannot be intercepted, hence this. */
+@media print {
+  html.protected-view-open body {
+    display: none !important;
+  }
+}

@@ -6,9 +6,13 @@ import {
   FileText,
   Library,
   Loader2,
+  Lock,
 } from 'lucide-react'
+import { useContext, useState } from 'react'
 import type { Source } from '@/lib/api'
+import { AuthContext } from '@/context/AuthContext'
 import { useDocumentDownload } from '@/hooks/useDocumentDownload'
+import { ProtectedDocumentViewer } from './ProtectedDocumentViewer'
 import {
   externalLinkHost,
   fileTypeLabel,
@@ -22,9 +26,19 @@ import {
   sourceTitle,
 } from '@/lib/sources'
 
-/** One cited document: what it is, where to verify it, and how to save it. */
+/**
+ * One cited document: what it is, where to verify it, and how to open it.
+ *
+ * Downloading is admin-only — the gateway answers 403 to anyone else — so only
+ * an admin gets Download (and the browser-tab View, which hands over the same
+ * file). Everyone else reads a PDF in the view-only page viewer, fed rendered
+ * page images from `pages_url`. Read from the context directly rather than
+ * `useAuth`, so a render outside the provider fails closed to non-admin.
+ */
 function SourceRow({ source }: { source: Source }) {
+  const isAdmin = useContext(AuthContext)?.isAdmin === true
   const { download, view, pending, error } = useDocumentDownload(source)
+  const [viewing, setViewing] = useState(false)
 
   const pages = pagesLabel(source.pages)
   const kind = fileTypeLabel(source.file_type)
@@ -33,9 +47,11 @@ function SourceRow({ source }: { source: Source }) {
   const routes = routesLabel(source.routes)
   const recovered = isMachineRecovered(source)
   const title = sourceTitle(source)
-  const hasDownload = Boolean(source.download_url)
+  const hasDownload = isAdmin && Boolean(source.download_url)
   // A browser can render a PDF/text/CSV in a tab; docx/xlsx get download only.
   const canView = hasDownload && isBrowserViewable(source)
+  // Non-admins: PDFs only, as page images.
+  const pagesUrl = !isAdmin ? (source.pages_url ?? null) : null
 
   return (
     <li className="rounded-lg border bg-background/60 px-3 py-2.5">
@@ -91,10 +107,34 @@ function SourceRow({ source }: { source: Source }) {
               {pending ? 'Opening…' : 'Download'}
             </button>
           </div>
+        ) : pagesUrl ? (
+          <button
+            type="button"
+            onClick={() => setViewing(true)}
+            aria-label={`View ${title} (view only)`}
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-[11px] font-semibold transition-colors hover:border-primary hover:text-primary"
+          >
+            <Eye className="size-3.5" aria-hidden />
+            View
+          </button>
+        ) : !isAdmin && source.download_url ? (
+          <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+            <Lock className="size-3" aria-hidden />
+            Download: admins only
+          </span>
         ) : (
           <span className="shrink-0 text-[11px] text-muted-foreground">No file</span>
         )}
       </div>
+
+      {viewing && pagesUrl && (
+        <ProtectedDocumentViewer
+          title={title}
+          pagesUrl={pagesUrl}
+          initialPage={source.pages[0]}
+          onClose={() => setViewing(false)}
+        />
+      )}
 
       {/*
         Not decoration and deliberately not a tooltip: this document's text came
