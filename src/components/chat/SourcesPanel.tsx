@@ -16,7 +16,6 @@ import { ProtectedDocumentViewer } from './ProtectedDocumentViewer'
 import {
   externalLinkHost,
   fileTypeLabel,
-  isBrowserViewable,
   isMachineRecovered,
   isNrbSource,
   pagesLabel,
@@ -29,15 +28,16 @@ import {
 /**
  * One cited document: what it is, where to verify it, and how to open it.
  *
- * Downloading is admin-only — the gateway answers 403 to anyone else — so only
- * an admin gets Download (and the browser-tab View, which hands over the same
- * file). Everyone else reads a PDF in the view-only page viewer, fed rendered
- * page images from `pages_url`. Read from the context directly rather than
- * `useAuth`, so a render outside the provider fails closed to non-admin.
+ * View is the view-only page viewer for EVERYONE, admins included: it is fed
+ * rendered page images from `pages_url`, so there is no text to select or copy
+ * and no browser PDF toolbar to print or save from. Downloading the file is a
+ * separate, admin-only action — the gateway answers 403 to anyone else. Read
+ * from the context directly rather than `useAuth`, so a render outside the
+ * provider fails closed to non-admin.
  */
 function SourceRow({ source }: { source: Source }) {
   const isAdmin = useContext(AuthContext)?.isAdmin === true
-  const { download, view, pending, error } = useDocumentDownload(source)
+  const { download, pending, error } = useDocumentDownload(source)
   const [viewing, setViewing] = useState(false)
 
   const pages = pagesLabel(source.pages)
@@ -47,11 +47,9 @@ function SourceRow({ source }: { source: Source }) {
   const routes = routesLabel(source.routes)
   const recovered = isMachineRecovered(source)
   const title = sourceTitle(source)
-  const hasDownload = isAdmin && Boolean(source.download_url)
-  // A browser can render a PDF/text/CSV in a tab; docx/xlsx get download only.
-  const canView = hasDownload && isBrowserViewable(source)
-  // Non-admins: PDFs only, as page images.
-  const pagesUrl = !isAdmin ? (source.pages_url ?? null) : null
+  const canDownload = isAdmin && Boolean(source.download_url)
+  // PDFs only: the gateway renders their pages as images.
+  const pagesUrl = source.pages_url ?? null
 
   return (
     <li className="rounded-lg border bg-background/60 px-3 py-2.5">
@@ -78,45 +76,36 @@ function SourceRow({ source }: { source: Source }) {
             </a>
           )}
         </div>
-        {hasDownload ? (
+        {pagesUrl || canDownload ? (
           <div className="flex shrink-0 items-center gap-1.5">
-            {canView && (
+            {pagesUrl && (
               <button
                 type="button"
-                onClick={() => void view()}
-                disabled={pending}
-                aria-label={`View ${title} in a new tab`}
-                className="inline-flex h-7 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-[11px] font-semibold transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => setViewing(true)}
+                aria-label={`View ${title} (view only)`}
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-[11px] font-semibold transition-colors hover:border-primary hover:text-primary"
               >
                 <Eye className="size-3.5" aria-hidden />
                 View
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => void download()}
-              disabled={pending}
-              aria-label={`Download ${title}`}
-              className="inline-flex h-7 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-[11px] font-semibold transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {pending ? (
-                <Loader2 className="size-3.5 animate-spin" aria-hidden />
-              ) : (
-                <Download className="size-3.5" aria-hidden />
-              )}
-              {pending ? 'Opening…' : 'Download'}
-            </button>
+            {canDownload && (
+              <button
+                type="button"
+                onClick={() => void download()}
+                disabled={pending}
+                aria-label={`Download ${title}`}
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-[11px] font-semibold transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {pending ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Download className="size-3.5" aria-hidden />
+                )}
+                {pending ? 'Opening…' : 'Download'}
+              </button>
+            )}
           </div>
-        ) : pagesUrl ? (
-          <button
-            type="button"
-            onClick={() => setViewing(true)}
-            aria-label={`View ${title} (view only)`}
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-[11px] font-semibold transition-colors hover:border-primary hover:text-primary"
-          >
-            <Eye className="size-3.5" aria-hidden />
-            View
-          </button>
         ) : !isAdmin && source.download_url ? (
           <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
             <Lock className="size-3" aria-hidden />

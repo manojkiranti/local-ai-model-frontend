@@ -259,58 +259,37 @@ describe('downloading a cited document', () => {
   })
 })
 
-// A browser can render a PDF/text/CSV, so those get a "View" (new tab); the
-// Office formats it cannot render get download only.
-describe('viewing a cited document in the browser', () => {
-  it('offers View for a PDF and opens the authed blob in a new tab', async () => {
-    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'pdf' })]} />)
-    fireEvent.click(screen.getByRole('button', { name: /View/ }))
-    await waitFor(() =>
-      expect(mockFetchDocument).toHaveBeenCalledWith(
-        '/v1/departments/hr/documents/doc-1/download',
-      ),
-    )
-    await waitFor(() => expect(clicked.length).toBe(1))
-    // Opened, not saved: a _blank target and no download attribute.
-    expect(clicked[0].href).toBe('blob:doc')
-    expect(clicked[0].target).toBe('_blank')
-    expect(clicked[0].download).toBe('')
-  })
+// View is the view-only page viewer for everyone, admins included — never the
+// raw file in a browser tab, whose PDF viewer lets you select, copy and print.
+describe('an admin viewing a cited document', () => {
+  const pdf = () =>
+    source({ pages_url: '/v1/departments/hr/documents/doc-1/pages', pages: [2] })
 
-  it('offers View for text and CSV', () => {
-    cleanup()
-    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'text' })]} />)
-    expect(screen.getByRole('button', { name: /View/ })).toBeTruthy()
-    cleanup()
-    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'csv' })]} />)
-    expect(screen.getByRole('button', { name: /View/ })).toBeTruthy()
-  })
-
-  it('offers no View for docx or xlsx — download only', () => {
-    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'docx' })]} />)
-    expect(screen.queryByRole('button', { name: /View/ })).toBeNull()
-    expect(screen.getByRole('button', { name: /Download/ })).toBeTruthy()
-    cleanup()
-    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'xlsx' })]} />)
-    expect(screen.queryByRole('button', { name: /View/ })).toBeNull()
-    expect(screen.getByRole('button', { name: /Download/ })).toBeTruthy()
-  })
-
-  // The button appears from file_type, but the actual open is gated on the
-  // RESPONSE Content-Type: an unexpected type is saved, never opened in-tab.
-  it('falls back to saving when the response is not a viewable type', async () => {
-    mockFetchDocument.mockResolvedValue({
-      headers: new Headers({
-        'Content-Type': 'application/octet-stream',
-        'Content-Disposition': 'attachment; filename="stored.pdf"',
-      }),
-      blob: async () => new Blob(['x'], { type: 'application/octet-stream' }),
+  it('opens a PDF in the view-only viewer, not the raw file in a new tab', async () => {
+    vi.mocked(fetchDocumentPageCount).mockResolvedValue(2)
+    vi.mocked(fetchDocumentPage).mockResolvedValue({
+      blob: async () => new Blob(['png'], { type: 'image/png' }),
     } as Response)
-    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'pdf' })]} />)
-    fireEvent.click(screen.getByRole('button', { name: /View/ }))
-    await waitFor(() => expect(clicked.length).toBe(1))
-    expect(clicked[0].target).toBe('')
-    expect(clicked[0].download).toBe('stored.pdf')
+    renderAsAdmin(<SourcesPanel sources={[pdf()]} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /View Leave policy \(view only\)/ }))
+
+    expect(await screen.findByRole('dialog', { name: /view only/ })).toBeTruthy()
+    expect(await screen.findByAltText('Page 2')).toBeTruthy()
+    expect(mockFetchDocument).not.toHaveBeenCalled()
+    expect(clicked).toHaveLength(0)
+  })
+
+  it('still offers the admin Download beside View', () => {
+    renderAsAdmin(<SourcesPanel sources={[pdf()]} />)
+    expect(screen.getByRole('button', { name: /View/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Download/ })).toBeTruthy()
+  })
+
+  it('offers no View for a non-PDF — download only', () => {
+    renderAsAdmin(<SourcesPanel sources={[source({ file_type: 'docx', pages_url: null })]} />)
+    expect(screen.queryByRole('button', { name: /View/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Download/ })).toBeTruthy()
   })
 })
 
