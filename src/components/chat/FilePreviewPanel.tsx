@@ -370,13 +370,14 @@ function CoverPage({
   )
 }
 
-/** create_pptx's own structured content, rendered as scrollable slide "pages". */
+/** create_pptx's own structured content, rendered as scrollable slide "pages".
+ * Set in Arial to match the downloaded deck (the gateway's `DECK_FONT`). */
 function DeckPages({ deck }: { deck: DeckPreview }) {
   const branding = usePptxBranding()
   const total = (deck.title ? 1 : 0) + deck.slides.length
   let page = 0
   return (
-    <div className="flex flex-col gap-4">
+    <div data-testid="deck-pages" className="flex flex-col gap-4 font-[Arial,sans-serif]">
       {deck.title && (
         <CoverPage
           title={deck.title}

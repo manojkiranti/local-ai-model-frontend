@@ -63,6 +63,17 @@ describe('FilePreviewPanel', () => {
     expect(screen.getByText('Page 3 / 3')).not.toBeNull()
   })
 
+  it('sets the deck preview in Arial, matching the downloaded deck', async () => {
+    mockFetchFile.mockResolvedValue(response(PPTX, 'attachment; filename="review.pptx"'))
+    mockFetchFilePreview.mockResolvedValue({ title: 'Deck', subtitle: '', slides: [{ title: 'One', bullets: ['a'] }] })
+
+    render(<FilePreviewPanel file={{ id: 'f1' }} onClose={vi.fn()} />)
+
+    const pages = await screen.findByTestId('deck-pages')
+    expect(pages.className).toContain('font-[Arial,sans-serif]')
+    expect(pages.contains(screen.getByText('One'))).toBe(true)
+  })
+
   it('renders a stats slide as highlight-number cards', async () => {
     mockFetchFile.mockResolvedValue(response(PPTX, 'attachment; filename="review.pptx"'))
     mockFetchFilePreview.mockResolvedValue({
