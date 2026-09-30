@@ -246,15 +246,25 @@ function SlidePage({
           line) — matching how it actually looks on a real content slide —
           rather than stretching it across the whole variable-height card,
           which would crop the logo unpredictably depending on content length. */}
+      {/* The band is the top 20% of a 16:9 slide, so the divider line lands
+          at the same place (~75% down the band) whatever the panel width.
+          The title sits above that line, left aligned and clear of the logo,
+          exactly where create_pptx puts it (_HEADER_TITLE_BOX). */}
       {headerBg && (
         <div
-          className="h-14 w-full bg-cover bg-top"
+          data-testid="slide-header"
+          className="relative aspect-[16/1.8] w-full bg-cover bg-top"
           style={{ backgroundImage: `url(${headerBg})` }}
-          aria-hidden="true"
-        />
+        >
+          {slide.title && (
+            <h3 className="absolute left-[2.5%] top-0 flex h-[70%] w-[80%] items-center text-base font-semibold text-black">
+              <span className="truncate">{slide.title}</span>
+            </h3>
+          )}
+        </div>
       )}
       <div className="p-6">
-        {slide.title && (
+        {slide.title && !headerBg && (
           <h3 className="border-b-2 border-primary/60 pb-2 text-lg font-semibold text-foreground">
             {slide.title}
           </h3>
