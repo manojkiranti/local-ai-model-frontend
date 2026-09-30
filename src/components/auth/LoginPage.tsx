@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/hooks/useAuth'
-import { emailError, passwordError } from '@/lib/auth-validation'
+import { loginNameError, passwordError } from '@/lib/auth-validation'
 import { describeError } from '@/lib/api'
 import { AuthShell } from './AuthShell'
 
@@ -25,7 +25,7 @@ export function LoginPage() {
     e.preventDefault()
     setFormError(null)
     const errs = {
-      email: emailError(email) ?? undefined,
+      email: loginNameError(email) ?? undefined,
       password: passwordError(password) ?? undefined,
     }
     setFieldErrors(errs)
@@ -65,11 +65,13 @@ export function LoginPage() {
         )}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="email">Email</Label>
+          <Label htmlFor="email">Username or email</Label>
           <Input
             id="email"
-            type="email"
-            autoComplete="email"
+            type="text"
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             aria-invalid={!!fieldErrors.email}

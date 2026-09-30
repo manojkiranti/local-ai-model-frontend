@@ -71,6 +71,8 @@ describe('FilePreviewPanel', () => {
 
     const pages = await screen.findByTestId('deck-pages')
     expect(pages.className).toContain('font-[Arial,sans-serif]')
+    // Always the light slide palette, so no text turns white in dark mode.
+    expect(pages.className).toContain('deck-light')
     expect(pages.contains(screen.getByText('One'))).toBe(true)
   })
 

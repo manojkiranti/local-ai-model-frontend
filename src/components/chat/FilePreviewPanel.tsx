@@ -3,11 +3,13 @@ import { AlertTriangle, Download, ImageOff, Loader2, Maximize2, Minimize2, X } f
 import {
   describeError,
   fetchFile,
+  fetchFilePdf,
   fetchFilePreview,
   fetchPptxCoverBackground,
   fetchPptxHeaderBackground,
 } from '@/lib/api'
-import type { ChartSpec, DeckPreview, SlideSpec } from '@/lib/api'
+import { isMemoPreview, type ChartSpec, type DeckPreview, type FilePreview, type SlideSpec } from '@/lib/api'
+import { MemoPages } from './MemoPreview'
 import { filenameFromContentDisposition } from '@/lib/file-format'
 import type { FileRef } from '@/lib/agent-api'
 import { useAuthedImageUrl } from '@/hooks/useAuthedImageUrl'
@@ -21,6 +23,9 @@ interface Loaded {
 const isImage = (ct: string) => ct.startsWith('image/')
 const isPdf = (ct: string) => ct.includes('application/pdf')
 const isDeck = (ct: string) => ct.includes('presentationml.presentation') || ct.includes('ms-powerpoint')
+// A generated .docx may be a create_memo memo, which records a structured preview.
+const isDocx = (ct: string) => ct.includes('wordprocessingml.document')
+const hasStructuredPreview = (ct: string) => isDeck(ct) || isDocx(ct)
 
 interface PptxBranding {
   cover: string | null
@@ -387,7 +392,7 @@ function DeckPages({ deck }: { deck: DeckPreview }) {
   const total = (deck.title ? 1 : 0) + deck.slides.length
   let page = 0
   return (
-    <div data-testid="deck-pages" className="flex flex-col gap-4 font-[Arial,sans-serif]">
+    <div data-testid="deck-pages" className="deck-light flex flex-col gap-4 font-[Arial,sans-serif]">
       {deck.title && (
         <CoverPage
           title={deck.title}
@@ -440,7 +445,11 @@ export function FilePreviewPanel({
   // being absent (not attempted yet, or for a different id) — collapsing the
   // two would render the "no preview, download it" fallback for the split
   // second before a deck's OWN structured preview arrives.
-  const [deckState, setDeckState] = useState<{ id: string; deck: DeckPreview | null } | null>(null)
+  const [deckState, setDeckState] = useState<{ id: string; deck: FilePreview | null } | null>(null)
+  // A Word file is shown as the PDF the gateway renders of it (LibreOffice),
+  // exactly like a PDF. `url: null` = conversion unavailable or failed, which
+  // falls back to the structured memo preview, then to the download message.
+  const [pdfState, setPdfState] = useState<{ id: string; url: string | null } | null>(null)
   const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
@@ -448,6 +457,7 @@ export function FilePreviewPanel({
     const fileId = file.id
     let cancelled = false
     let createdUrl: string | null = null
+    let pdfUrl: string | null = null
 
     void (async () => {
       try {
@@ -468,20 +478,41 @@ export function FilePreviewPanel({
           filename: named || file.filename || `file-${fileId.slice(0, 8)}`,
         })
 
-        if (isDeck(contentType)) {
+        if (isDocx(contentType)) {
+          try {
+            const pdf = await fetchFilePdf(fileId)
+            pdfUrl = URL.createObjectURL(await pdf.blob())
+          } catch {
+            pdfUrl = null // not installed / not convertible: fall back below
+          }
+          if (cancelled) {
+            if (pdfUrl) URL.revokeObjectURL(pdfUrl)
+            return
+          }
+          if (pdfUrl) {
+            setPdfState({ id: fileId, url: pdfUrl })
+            setDeckState({ id: fileId, deck: null })
+            return
+          }
+        }
+
+        if (hasStructuredPreview(contentType)) {
           // Best-effort, secondary fetch: 404 means no structured preview was
           // recorded for this file (an older file, or a tool that doesn't
           // supply one), and any other failure isn't worth a distinct error
           // state here either — either way this resolves to `deck: null`
           // (attempted, none available), and the raw-file view (the download
           // link itself) still works regardless.
-          let preview: DeckPreview | null = null
+          let preview: FilePreview | null = null
           try {
             preview = await fetchFilePreview(fileId)
           } catch {
             // preview stays null — no structured preview for this file
           }
-          if (!cancelled) setDeckState({ id: fileId, deck: preview })
+          if (!cancelled) {
+            setDeckState({ id: fileId, deck: preview })
+            if (isDocx(contentType)) setPdfState({ id: fileId, url: null })
+          }
         }
       } catch (e) {
         if (!cancelled) setFailedState({ id: fileId, error: describeError(e) })
@@ -491,6 +522,7 @@ export function FilePreviewPanel({
     return () => {
       cancelled = true
       if (createdUrl) URL.revokeObjectURL(createdUrl)
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl)
     }
     // Depend on the primitives actually used (id/filename), not the object
     // reference: an unstable but same-id object must not re-trigger the fetch.
@@ -504,7 +536,15 @@ export function FilePreviewPanel({
   // Three states for a deck: undefined (fetch still in flight), null
   // (attempted, none recorded), or the resolved preview.
   const deckAttempt = deckState?.id === file.id ? deckState : undefined
-  const deckPending = Boolean(loaded && isDeck(loaded.contentType) && deckAttempt === undefined)
+  const deckPending = Boolean(
+    loaded && hasStructuredPreview(loaded.contentType) && deckAttempt === undefined,
+  )
+  const pdfAttempt = pdfState?.id === file.id ? pdfState : undefined
+  const pdfPending = Boolean(loaded && isDocx(loaded.contentType) && pdfAttempt === undefined)
+  const renderedPdf = pdfAttempt?.url ?? null
+  const structured = deckAttempt?.deck ?? null
+  const memo = structured && isMemoPreview(structured) ? structured : null
+  const deck = structured && !isMemoPreview(structured) ? structured : null
 
   return (
     <div
@@ -554,13 +594,23 @@ export function FilePreviewPanel({
             <AlertTriangle className="size-4 shrink-0" />
             <span>Couldn't load {file.filename ?? 'file'}: {error}</span>
           </div>
-        ) : !loaded || deckPending ? (
+        ) : !loaded || deckPending || pdfPending ? (
           <div className="grid h-full place-items-center">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
-        ) : isDeck(loaded.contentType) && deckAttempt?.deck ? (
+        ) : renderedPdf ? (
+          <iframe
+            title={`Preview of ${loaded.filename}`}
+            src={renderedPdf}
+            className="h-full min-h-[70vh] w-full rounded-xl border bg-white"
+          />
+        ) : memo ? (
+          <div className={expanded ? 'mx-auto max-w-3xl' : undefined}>
+            <MemoPages memo={memo} />
+          </div>
+        ) : isDeck(loaded.contentType) && deck ? (
           <div className={expanded ? 'mx-auto max-w-2xl' : undefined}>
-            <DeckPages deck={deckAttempt.deck} />
+            <DeckPages deck={deck} />
           </div>
         ) : isImage(loaded.contentType) ? (
           <div className="overflow-hidden rounded-xl border bg-white p-2">

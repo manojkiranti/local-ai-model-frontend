@@ -664,6 +664,43 @@ export interface DeckPreview {
   slides: SlideSpec[]
 }
 
+/** A memo bullet: plain text, or text with its own sub-bullets. */
+export type MemoBullet = string | { text: string; bullets?: string[] }
+
+/** One block of a memo section — a paragraph, a bullet list, a numbered bold
+ * sub-heading, or a table. `**text**` inside any string is bold. */
+export type MemoBlock =
+  | string
+  | { bullets: MemoBullet[] }
+  | { heading: string }
+  | { table: { headers?: string[]; rows: string[][] } }
+
+/** The structured content behind a generated memo — the exact args
+ * create_memo validated and rendered its fixed-format .docx from. */
+export interface MemoPreview {
+  kind: 'memo'
+  to: string
+  from: string
+  subject: string
+  date: string
+  sections: { heading: string; content: MemoBlock[] }[]
+  signatories: { role: string; name: string; designation: string }[]
+}
+
+/** What `GET /v1/files/{id}/preview` returns: a deck, or a memo (tagged). */
+export type FilePreview = DeckPreview | MemoPreview
+
+export function isMemoPreview(preview: FilePreview): preview is MemoPreview {
+  return (preview as MemoPreview).kind === 'memo'
+}
+
+/** The logo printed on generated memos (`GET /v1/branding/memo-logo`). */
+export async function fetchMemoLogo(signal?: AbortSignal): Promise<Response> {
+  const res = await rawFetch('/v1/branding/memo-logo', { method: 'GET' }, signal)
+  if (!res.ok) throw await errorFromResponse(res)
+  return res
+}
+
 /**
  * The org's own pptx template artwork (`GET /v1/branding/pptx-cover` /
  * `/pptx-header`) — shared, not tied to any file, so the deck preview panel
@@ -684,16 +721,30 @@ export async function fetchPptxHeaderBackground(signal?: AbortSignal): Promise<R
 }
 
 /**
+ * A PDF rendering of a generated Office file (`GET /v1/files/{id}/pdf`) for the
+ * side-panel preview — converted server-side by LibreOffice, so the browser
+ * can show a Word memo exactly as it prints. 503 when the deployment has no
+ * converter, 415 for a non-Office file; callers fall back to the structured
+ * preview on any failure.
+ */
+export async function fetchFilePdf(id: string, signal?: AbortSignal): Promise<Response> {
+  const res = await rawFetch(`/v1/files/${encodeURIComponent(id)}/pdf`, { method: 'GET' }, signal)
+  if (!res.ok) throw await errorFromResponse(res)
+  return res
+}
+
+/**
  * Fetch the structured preview behind a generated file (`GET
- * /v1/files/{id}/preview`) — currently only recorded for create_pptx decks,
+ * /v1/files/{id}/preview`) — recorded for create_pptx decks and create_memo
+ * memos (tagged `kind: 'memo'`),
  * so the frontend can render a faithful per-slide view instead of parsing the
  * binary file (which has no browser-native renderer). 404 means no preview
  * was recorded for this file — not every tool provides one, and files
  * predating this feature have none — so callers should treat that as "fall
  * back to the raw-file view", not as an error to surface.
  */
-export async function fetchFilePreview(id: string, signal?: AbortSignal): Promise<DeckPreview> {
-  return request<DeckPreview>(
+export async function fetchFilePreview(id: string, signal?: AbortSignal): Promise<FilePreview> {
+  return request<FilePreview>(
     `/v1/files/${encodeURIComponent(id)}/preview`,
     { method: 'GET' },
     signal,

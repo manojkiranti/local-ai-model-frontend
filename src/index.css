@@ -254,3 +254,22 @@
     display: none !important;
   }
 }
+
+/* Deck previews are pictures of printed slides, so they keep the LIGHT palette
+   in both app themes. Without this, dark mode turns slide text near-white — on
+   the light template artwork (the cover, the stat cards) it becomes invisible. */
+.deck-light {
+  --background: #f5f6f8;
+  --foreground: #1d2230;
+  --card: #ffffff;
+  --card-foreground: #1d2230;
+  --primary: #e60012;
+  --primary-foreground: #ffffff;
+  --muted: #edeff2;
+  --muted-foreground: #6b7280;
+  --border: #e3e6ea;
+  --chart-2: #2a78d6;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  color: var(--foreground);
+}
