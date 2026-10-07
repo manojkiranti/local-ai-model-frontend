@@ -2,9 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, UserCog } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { McpAccessPanel } from '@/components/admin/McpAccessPanel'
 import { McpGrantsPanel } from '@/components/admin/McpGrantsPanel'
+import { ToolAccessPanel } from '@/components/admin/ToolAccessPanel'
 import { UserActiveToggle } from '@/components/admin/UserActiveToggle'
+import { useMcpAccess } from '@/hooks/useMcpAccess'
 import { useMcpGrants } from '@/hooks/useMcpGrants'
+import { useToolAccess } from '@/hooks/useToolAccess'
 import { gatewayDetail, listUsers, updateUser, type UserOut } from '@/lib/api'
 
 interface UserDetailPageProps {
@@ -12,8 +16,8 @@ interface UserDetailPageProps {
 }
 
 /**
- * One user's administrable state: their account switch, and the MCP grants they
- * hold.
+ * One user's administrable state: their account switch, which built-in tools
+ * they may use, and the MCP grants they hold.
  *
  * The route has NO client-side admin guard, matching the Users and NRB screens:
  * a non-admin who reaches the URL sees the gateway's 403 rendered here, which is
@@ -31,6 +35,8 @@ export function UserDetailPage({ currentUserId }: UserDetailPageProps) {
   const [busy, setBusy] = useState(false)
 
   const grants = useMcpGrants(userId)
+  const tools = useToolAccess(userId)
+  const mcpAccess = useMcpAccess(userId)
 
   // There is no GET /users/{id}: only /users/me and the paginated list. One wide
   // page covers a cold deep-link AND resolves granted_by ids to emails.
@@ -120,6 +126,28 @@ export function UserDetailPage({ currentUserId }: UserDetailPageProps) {
             <p className="min-w-0">{notice}</p>
           </div>
         )}
+
+        <ToolAccessPanel
+          list={tools.list}
+          loading={tools.loading}
+          error={tools.error}
+          busy={tools.busy}
+          onSetGroupAllowed={(group, allowed) => void tools.setGroupAllowed(group, allowed)}
+          onResetGroup={(group) => void tools.resetGroup(group)}
+          resolveAdmin={resolveGranter}
+        />
+
+        <McpAccessPanel
+          list={mcpAccess.list}
+          loading={mcpAccess.loading}
+          error={mcpAccess.error}
+          busy={mcpAccess.busy}
+          onSetLevel={(system, level) => void mcpAccess.setLevel(system, level)}
+          onResetLevel={(system) => void mcpAccess.resetLevel(system)}
+          onSetToolAllowed={(tool, allowed) => void mcpAccess.setToolAllowed(tool, allowed)}
+          onResetTool={(tool) => void mcpAccess.resetTool(tool)}
+          resolveAdmin={resolveGranter}
+        />
 
         <McpGrantsPanel
           items={grants.items}

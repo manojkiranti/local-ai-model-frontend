@@ -67,7 +67,11 @@ interface SidebarProps {
   onLoadMoreSessions: () => void
   /** Set only when the gateway's contract does not match this client. */
   sessionsError?: string | null
+  /** Conversations with a reply still being generated, open or in the background. */
+  busySessionIds?: ReadonlySet<string>
 }
+
+const NO_BUSY: ReadonlySet<string> = new Set()
 
 export function Sidebar({
   sessions,
@@ -86,6 +90,7 @@ export function Sidebar({
   loadingMoreSessions,
   onLoadMoreSessions,
   sessionsError = null,
+  busySessionIds = NO_BUSY,
 }: SidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
@@ -272,6 +277,7 @@ export function Sidebar({
               <div className="space-y-0.5">
                 {group.sessions.map((session) => {
                   const active = !onFiles && !onAdmin && !onNrb && session.id === activeId
+                  const busy = busySessionIds.has(session.id)
                   return (
                     <div
                       key={session.id}
@@ -283,12 +289,20 @@ export function Sidebar({
                           : 'text-sidebar-foreground/70 hover:bg-white/5 hover:text-sidebar-foreground',
                       )}
                     >
-                      <MessageSquare
-                        className={cn(
-                          'size-3.5 shrink-0',
-                          active ? 'text-primary' : 'text-sidebar-muted-foreground',
-                        )}
-                      />
+                      {busy ? (
+                        <Loader2
+                          role="status"
+                          aria-label="Generating a reply"
+                          className="size-3.5 shrink-0 animate-spin text-primary"
+                        />
+                      ) : (
+                        <MessageSquare
+                          className={cn(
+                            'size-3.5 shrink-0',
+                            active ? 'text-primary' : 'text-sidebar-muted-foreground',
+                          )}
+                        />
+                      )}
                       <span className="min-w-0 flex-1 truncate">{session.title || 'Untitled chat'}</span>
                       {session.message_count > 0 && (
                         <span className="font-mono text-[10px] text-sidebar-muted-foreground">

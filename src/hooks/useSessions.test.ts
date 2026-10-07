@@ -840,3 +840,191 @@ describe('useSessions cursor paging', () => {
     expect(result.current.sessions.map((s) => s.id)).toEqual(['s7'])
   })
 })
+
+/** A stream for `sessionId` that yields one token, then waits to be finished. */
+function heldStream(sessionId: string, opts: { error?: boolean } = {}) {
+  let finish!: () => void
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+  let signal: AbortSignal | undefined
+  const open = (_req: unknown, s?: AbortSignal) => {
+    signal = s
+    return Promise.resolve({
+      sessionId,
+      events: (async function* () {
+        yield { type: 'token', content: 'Working' }
+        await gate
+        if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
+        yield {
+          type: 'done',
+          session_id: sessionId,
+          stop_reason: opts.error ? 'error' : 'completed',
+          iteration_count: 1,
+          final_answer: 'Working',
+          error_message: opts.error ? 'boom' : null,
+          trace: [],
+          sources: null,
+        }
+      })(),
+    } as OpenResult)
+  }
+  return { open, finish, aborted: () => signal?.aborted ?? false }
+}
+
+const thread = (id: string, text: string) =>
+  ({
+    id,
+    messages: [
+      { id: `${id}-u`, role: 'user', content: text, trace: null, sources: null, model: null, created_at: '2026-10-01T00:00:00Z' },
+    ],
+    next_cursor: null,
+  }) as unknown as Awaited<ReturnType<typeof getSession>>
+
+describe('useSessions background turns', () => {
+  beforeEach(() => {
+    mockOpen.mockReset()
+    mockGetSession.mockReset()
+  })
+
+  it('keeps a turn running after switching chats, and marks its session busy', async () => {
+    const run = heldStream('sess-a')
+    mockOpen.mockImplementation(run.open)
+    mockGetSession.mockImplementation(async (id: string) => thread(id, `opened ${id}`))
+    const { result } = renderHook(() => useSessions())
+
+    act(() => result.current.send('draft the memo'))
+    await waitFor(() => expect(result.current.activeId).toBe('sess-a'))
+    expect(result.current.busySessionIds.has('sess-a')).toBe(true)
+    expect(result.current.sending).toBe(true)
+
+    await act(async () => {
+      await result.current.selectSession('sess-b')
+    })
+    // Not stopped: still busy in the background, and this chat is free to use.
+    expect(run.aborted()).toBe(false)
+    expect(result.current.busySessionIds.has('sess-a')).toBe(true)
+    expect(result.current.sending).toBe(false)
+    expect(result.current.messages.map((m) => m.content)).toEqual(['opened sess-b'])
+
+    await act(async () => {
+      run.finish()
+    })
+    await waitFor(() => expect(result.current.busySessionIds.size).toBe(0))
+  })
+
+  it('shows the live thread, not the server copy, on returning to a running chat', async () => {
+    const run = heldStream('sess-a')
+    mockOpen.mockImplementation(run.open)
+    mockGetSession.mockImplementation(async (id: string) => thread(id, `opened ${id}`))
+    const { result } = renderHook(() => useSessions())
+
+    act(() => result.current.send('draft the memo'))
+    await waitFor(() => expect(result.current.activeId).toBe('sess-a'))
+    await act(async () => {
+      await result.current.selectSession('sess-b')
+    })
+    await act(async () => {
+      await result.current.selectSession('sess-a')
+    })
+
+    expect(mockGetSession).not.toHaveBeenCalledWith('sess-a')
+    expect(result.current.messages.map((m) => m.content)).toEqual(['draft the memo', 'Working'])
+    expect(result.current.sending).toBe(true)
+
+    await act(async () => {
+      run.finish()
+    })
+    await waitFor(() => expect(result.current.sending).toBe(false))
+    expect(result.current.messages[1].status).toBe('done')
+  })
+
+  it('drops a finished background thread so reopening reads the server', async () => {
+    const run = heldStream('sess-a')
+    mockOpen.mockImplementation(run.open)
+    mockGetSession.mockImplementation(async (id: string) => thread(id, `server ${id}`))
+    const { result } = renderHook(() => useSessions())
+
+    act(() => result.current.send('draft the memo'))
+    await waitFor(() => expect(result.current.activeId).toBe('sess-a'))
+    await act(async () => {
+      await result.current.selectSession('sess-b')
+    })
+    await act(async () => {
+      run.finish()
+    })
+    await waitFor(() => expect(result.current.busySessionIds.size).toBe(0))
+
+    await act(async () => {
+      await result.current.selectSession('sess-a')
+    })
+    expect(mockGetSession).toHaveBeenCalledWith('sess-a')
+    expect(result.current.messages.map((m) => m.content)).toEqual(['server sess-a'])
+  })
+
+  it('keeps a failed background thread so Retry is still there', async () => {
+    const run = heldStream('sess-a', { error: true })
+    mockOpen.mockImplementation(run.open)
+    mockGetSession.mockImplementation(async (id: string) => thread(id, `server ${id}`))
+    const { result } = renderHook(() => useSessions())
+
+    act(() => result.current.send('draft the memo'))
+    await waitFor(() => expect(result.current.activeId).toBe('sess-a'))
+    await act(async () => {
+      await result.current.selectSession('sess-b')
+    })
+    await act(async () => {
+      run.finish()
+    })
+    await waitFor(() => expect(result.current.busySessionIds.size).toBe(0))
+
+    await act(async () => {
+      await result.current.selectSession('sess-a')
+    })
+    expect(mockGetSession).not.toHaveBeenCalledWith('sess-a')
+    const failed = result.current.messages.find((m) => m.role === 'assistant')
+    expect(failed?.status).toBe('error')
+    expect(failed?.retryText).toBe('draft the memo')
+  })
+
+  it('still stops a new chat left before it learned its session id', async () => {
+    let signal: AbortSignal | undefined
+    mockOpen.mockImplementation((_req, s) => {
+      signal = s
+      return new Promise(() => {}) // the session id never arrives
+    })
+    mockGetSession.mockImplementation(async (id: string) => thread(id, `server ${id}`))
+    const { result } = renderHook(() => useSessions())
+
+    act(() => result.current.send('hello'))
+    await waitFor(() => expect(mockOpen).toHaveBeenCalled())
+    await act(async () => {
+      await result.current.selectSession('sess-b')
+    })
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('Stop aborts only the open chat, never a background one', async () => {
+    const a = heldStream('sess-a')
+    const b = heldStream('sess-b')
+    mockOpen.mockImplementationOnce(a.open).mockImplementationOnce(b.open)
+    mockGetSession.mockImplementation(async (id: string) => ({ ...thread(id, `server ${id}`), messages: [] }))
+    const { result } = renderHook(() => useSessions())
+
+    act(() => result.current.send('first'))
+    await waitFor(() => expect(result.current.activeId).toBe('sess-a'))
+    await act(async () => {
+      await result.current.selectSession('sess-b')
+    })
+    act(() => result.current.send('second'))
+    await waitFor(() => expect(result.current.busySessionIds.size).toBe(2))
+
+    act(() => result.current.stop())
+    expect(b.aborted()).toBe(true)
+    expect(a.aborted()).toBe(false)
+    await act(async () => {
+      a.finish()
+      b.finish()
+    })
+  })
+})

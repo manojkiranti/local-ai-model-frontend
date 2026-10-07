@@ -654,6 +654,15 @@ export interface SlideSpec {
   stats?: StatSpec[]
   image?: { file_id: string; caption?: string }
   chart?: ChartSpec
+  /** One-line key message, drawn as a banner across the bottom. */
+  takeaway?: string
+  // Whole-slide infographic layouts (at most one per slide). Icons arrive
+  // already resolved by the gateway: a real name from deck-icons.ts, or null.
+  cards?: { icon?: string | null; title: string; text?: string | null }[]
+  steps?: { icon?: string | null; title: string; text?: string | null }[]
+  timeline?: { date: string; title: string; text?: string | null }[]
+  comparison?: { heading: string; icon?: string | null; points: string[] }[]
+  progress?: { label: string; value: number; note?: string | null }[]
 }
 
 /** The structured content behind a generated deck (not a re-extraction of the
@@ -662,6 +671,8 @@ export interface DeckPreview {
   title: string
   subtitle: string
   slides: SlideSpec[]
+  /** The deck ends on the fixed "Thank You" slide (absent on older decks). */
+  closing?: boolean
 }
 
 /** A memo bullet: plain text, or text with its own sub-bullets. */
@@ -1196,6 +1207,230 @@ export async function revokeMcpGrant(
     signal,
   )
   if (!res.ok) throw await errorFromResponse(res)
+}
+
+// --------------------------------------------------------------------------- //
+// Built-in (local) tool access — per user, by GROUP, admin only. The gateway
+// owns the rule (a starter set every user gets, plus per-user overrides) and
+// computes each group's state; the client renders the groups it is sent and
+// derives none of it.
+// --------------------------------------------------------------------------- //
+export interface ToolAccessItem {
+  /** The tool's own name, e.g. `create_pptx`. */
+  name: string
+  summary: string
+  /** The id of the group it belongs to. */
+  group: string
+  default_allowed: boolean
+  override: boolean | null
+  allowed: boolean
+  updated_at: string | null
+  updated_by: number | null
+}
+
+/** One group as it stands for one user — the unit an admin switches. */
+export interface ToolAccessGroup {
+  /** Stable id used in the URL, e.g. `create`. */
+  id: string
+  label: string
+  /** The group's tool names, in display order. */
+  tools: string[]
+  /** Every tool allowed (`true`), none (`false`), or a mix (`null`). */
+  allowed: boolean | null
+  /** The starter set's answer for the group; `null` if its tools differ. */
+  default_allowed: boolean | null
+  /**
+   * `default`: no overrides. `granted`/`blocked`: every tool overridden the
+   * same way. `mixed`: anything else, e.g. per-tool overrides made via the API.
+   */
+  state: 'default' | 'granted' | 'blocked' | 'mixed'
+  /** The group's most recent override, if any (the audit fact). */
+  updated_at: string | null
+  updated_by: number | null
+}
+
+export interface ToolAccessList {
+  user_id: number
+  /** In display order. */
+  groups: ToolAccessGroup[]
+  items: ToolAccessItem[]
+}
+
+/**
+ * A gateway built before tool access went group-level sends `groups` as bare
+ * label strings. Rendering that crashed the whole user page (and the MCP
+ * grants panel with it), so the mismatch is named here instead.
+ */
+function checkToolAccess(list: ToolAccessList): ToolAccessList {
+  const ok =
+    list &&
+    Array.isArray(list.groups) &&
+    Array.isArray(list.items) &&
+    list.groups.every(
+      (g) => g !== null && typeof g === 'object' && typeof g.id === 'string' && Array.isArray(g.tools),
+    )
+  if (!ok) {
+    throw new ContractError(
+      'This gateway predates group-level tool access. The frontend and gateway must be deployed together — rebuild or restart the gateway.',
+    )
+  }
+  return list
+}
+
+/** 403 when the caller is not an admin, 404 for an unknown user. */
+export async function getToolAccess(userId: number, signal?: AbortSignal): Promise<ToolAccessList> {
+  return checkToolAccess(
+    await request<ToolAccessList>(`/v1/users/${userId}/tool-access`, { method: 'GET' }, signal),
+  )
+}
+
+/**
+ * Allow or block every tool in a group for a user, in one transaction. Returns
+ * the full list after the change. The body is exactly `{ allowed }`
+ * (`extra="forbid"`). 404 for an unknown group.
+ */
+export async function setToolGroupAccess(
+  userId: number,
+  groupId: string,
+  allowed: boolean,
+  signal?: AbortSignal,
+): Promise<ToolAccessList> {
+  return checkToolAccess(
+    await request<ToolAccessList>(
+      `/v1/users/${userId}/tool-access/groups/${encodeURIComponent(groupId)}`,
+      { method: 'PUT', body: JSON.stringify({ allowed }) },
+      signal,
+    ),
+  )
+}
+
+/** Return every tool in a group to its default. Returns the full list. */
+export async function resetToolGroupAccess(
+  userId: number,
+  groupId: string,
+  signal?: AbortSignal,
+): Promise<ToolAccessList> {
+  return checkToolAccess(
+    await request<ToolAccessList>(
+      `/v1/users/${userId}/tool-access/groups/${encodeURIComponent(groupId)}`,
+      { method: 'DELETE' },
+      signal,
+    ),
+  )
+}
+
+// --------------------------------------------------------------------------- //
+// MCP tool access — per user, admin only. A none/read/full LEVEL per MCP system
+// (HRMS, iZone, EMS, other) plus per-tool overrides that beat it. The gateway
+// owns the rule and computes every effective answer; the client renders it.
+// --------------------------------------------------------------------------- //
+export type McpLevel = 'none' | 'read' | 'full'
+
+export interface McpSystemAccess {
+  /** Stable id used in the URL: `hrms` | `izone` | `ems` | `other`. */
+  id: string
+  label: string
+  /** The effective level (the stored one, else `default_level`). */
+  level: McpLevel
+  default_level: McpLevel
+  /** An admin has set it; `false` means the default applies. */
+  overridden: boolean
+  updated_at: string | null
+  updated_by: number | null
+}
+
+export interface McpToolAccessItem {
+  name: string
+  summary: string
+  system: string
+  /** `write` tools may change data and need the `full` level (or an override). */
+  kind: 'read' | 'write'
+  /** `false`: the gateway's server-wide MCP_TOOL_MODE excludes it for everyone. */
+  server_enabled: boolean
+  /** Per-tool decision, or `null` when the system level decides. */
+  override: boolean | null
+  allowed: boolean
+  updated_at: string | null
+  updated_by: number | null
+}
+
+export interface McpAccessList {
+  user_id: number
+  tool_mode: string
+  /** `false`: the MCP server could not be listed — levels still editable, `tools` empty. */
+  mcp_reachable: boolean
+  systems: McpSystemAccess[]
+  tools: McpToolAccessItem[]
+}
+
+function checkMcpAccess(list: McpAccessList): McpAccessList {
+  if (!list || !Array.isArray(list.systems) || !Array.isArray(list.tools)) {
+    throw new ContractError(
+      'This gateway predates per-user MCP tool access. The frontend and gateway must be deployed together — rebuild or restart the gateway.',
+    )
+  }
+  return list
+}
+
+/** 403 when the caller is not an admin, 404 for an unknown user. */
+export async function getMcpAccess(userId: number, signal?: AbortSignal): Promise<McpAccessList> {
+  return checkMcpAccess(
+    await request<McpAccessList>(`/v1/users/${userId}/mcp-access`, { method: 'GET' }, signal),
+  )
+}
+
+/** Set a user's level for one MCP system. Body is exactly `{ level }`. Returns the full list. */
+export async function setMcpLevel(
+  userId: number,
+  system: string,
+  level: McpLevel,
+  signal?: AbortSignal,
+): Promise<McpAccessList> {
+  return checkMcpAccess(
+    await request<McpAccessList>(
+      `/v1/users/${userId}/mcp-access/systems/${encodeURIComponent(system)}`,
+      { method: 'PUT', body: JSON.stringify({ level }) },
+      signal,
+    ),
+  )
+}
+
+/** Return one system to the default level. Returns the full list. */
+export async function resetMcpLevel(userId: number, system: string, signal?: AbortSignal): Promise<McpAccessList> {
+  return checkMcpAccess(
+    await request<McpAccessList>(
+      `/v1/users/${userId}/mcp-access/systems/${encodeURIComponent(system)}`,
+      { method: 'DELETE' },
+      signal,
+    ),
+  )
+}
+
+/** Allow or block one MCP tool, overriding the level. 503 if the MCP server is down. */
+export async function setMcpToolAccess(
+  userId: number,
+  tool: string,
+  allowed: boolean,
+  signal?: AbortSignal,
+): Promise<McpAccessList> {
+  return checkMcpAccess(
+    await request<McpAccessList>(
+      `/v1/users/${userId}/mcp-access/tools/${encodeURIComponent(tool)}`,
+      { method: 'PUT', body: JSON.stringify({ allowed }) },
+      signal,
+    ),
+  )
+}
+
+/** Remove a tool's override so its system level decides again. */
+export async function resetMcpToolAccess(userId: number, tool: string, signal?: AbortSignal): Promise<McpAccessList> {
+  return checkMcpAccess(
+    await request<McpAccessList>(
+      `/v1/users/${userId}/mcp-access/tools/${encodeURIComponent(tool)}`,
+      { method: 'DELETE' },
+      signal,
+    ),
+  )
 }
 
 export async function listDepartmentDocuments(

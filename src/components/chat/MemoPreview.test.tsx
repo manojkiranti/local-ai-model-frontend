@@ -138,10 +138,11 @@ describe('memo preview when PDF conversion is unavailable', () => {
     expect([...table.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['VPN', 'NPR 3,390'])
   })
 
-  it('falls back to the download message for a plain Word file with no preview', async () => {
+  it('renders a plain Word file with no memo record in the browser, not as a memo', async () => {
     vi.mocked(fetchFilePreview).mockRejectedValue(new Error('404'))
     render(<FilePreviewPanel file={{ id: 'd1' }} onClose={vi.fn()} />)
-    expect(await screen.findByText('No visual preview available for this file type yet.')).toBeTruthy()
+    expect(await screen.findByTestId('docx-pages')).toBeTruthy()
+    expect(screen.queryByText('No visual preview available for this file type yet.')).toBeNull()
     expect(screen.queryByTestId('memo-page')).toBeNull()
   })
 })

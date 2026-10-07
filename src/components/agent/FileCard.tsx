@@ -9,7 +9,7 @@ import {
   Loader2,
   Presentation,
 } from 'lucide-react'
-import { describeError, fetchFile } from '@/lib/api'
+import { fetchFile, gatewayDetail } from '@/lib/api'
 import { filenameFromContentDisposition } from '@/lib/file-format'
 import type { FileRef } from '@/lib/agent-api'
 
@@ -81,7 +81,9 @@ export function FileCard({
         })
       } catch (e) {
         // A 401 is already handled globally (token cleared → redirect to login).
-        if (!cancelled) setError(describeError(e))
+        // The gateway's own detail ("file not found"), never describeError's
+        // model-listing rewrite of 404.
+        if (!cancelled) setError(gatewayDetail(e))
       }
     })()
 

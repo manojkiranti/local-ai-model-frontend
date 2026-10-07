@@ -117,6 +117,7 @@ export function Workspace() {
             role={user?.role ?? 'member'}
             onLogout={logout}
             sessionsError={chat.sessionsError}
+            busySessionIds={chat.busySessionIds}
             hasMoreSessions={chat.hasMoreSessions}
             loadingMoreSessions={chat.loadingMoreSessions}
             onLoadMoreSessions={chat.loadMoreSessions}

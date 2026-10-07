@@ -195,6 +195,40 @@ describe('FilePreviewPanel', () => {
     expect(mockFetchFilePreview).not.toHaveBeenCalled()
   })
 
+  it('gives a deck the zoom menu and scales the 1280 px slides to the chosen level', async () => {
+    mockFetchFile.mockResolvedValue(response(PPTX, 'attachment; filename="review.pptx"'))
+    mockFetchFilePreview.mockResolvedValue({ title: '', subtitle: '', slides: [{ title: 'One', bullets: ['a'] }] })
+
+    render(<FilePreviewPanel file={{ id: 'f7' }} onClose={vi.fn()} />)
+
+    const pages = await screen.findByTestId('deck-pages')
+    const trigger = screen.getByRole('button', { name: 'Zoom: fit to width' })
+    fireEvent.keyDown(trigger, { key: 'Enter' })
+    fireEvent.click(screen.getByRole('menuitem', { name: '50%' }))
+    expect(pages.dataset.scale).toBe('0.500')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Zoom: 50%' }).textContent).toBe('50%'))
+  })
+
+  it('docks wider on larger screens', async () => {
+    mockFetchFile.mockResolvedValue(response(XLSX, 'attachment; filename="sheet.xlsx"'))
+
+    render(<FilePreviewPanel file={{ id: 'f5' }} onClose={vi.fn()} />)
+
+    const panel = await screen.findByRole('complementary')
+    expect(panel.className).toContain('sm:w-[460px]')
+    expect(panel.className).toContain('lg:w-[600px]')
+    expect(panel.className).toContain('xl:w-[760px]')
+  })
+
+  it("shows the gateway's own reason when the file is not found", async () => {
+    mockFetchFile.mockRejectedValue(new GatewayError(404, 'file not found'))
+
+    render(<FilePreviewPanel file={{ id: 'f6', filename: 'memo.docx' }} onClose={vi.fn()} />)
+
+    expect(await screen.findByText("Couldn't load memo.docx: file not found")).not.toBeNull()
+    expect(screen.queryByText(/model not available/)).toBeNull()
+  })
+
   it('closes on the close button', async () => {
     mockFetchFile.mockResolvedValue(response(XLSX, 'attachment; filename="sheet.xlsx"'))
     const onClose = vi.fn()

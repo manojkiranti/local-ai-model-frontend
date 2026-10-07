@@ -131,7 +131,7 @@ export function McpGrantsPanel({
         <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
           <KeyRound className="size-4" />
         </span>
-        <h2 className="text-base font-semibold">Tool access</h2>
+        <h2 className="text-base font-semibold">MCP tool grants</h2>
       </div>
 
       {error && (

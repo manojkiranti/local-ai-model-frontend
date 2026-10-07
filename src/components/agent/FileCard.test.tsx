@@ -6,7 +6,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return { ...actual, fetchFile: vi.fn() }
 })
 
-import { fetchFile } from '@/lib/api'
+import { fetchFile, GatewayError } from '@/lib/api'
 import { FileCard } from '@/components/agent/FileCard'
 
 const mockFetchFile = vi.mocked(fetchFile)
@@ -109,5 +109,16 @@ describe('FileCard', () => {
 
     const link = await waitFor(() => screen.getByText('deck.pptx').closest('a'))
     expect(link?.getAttribute('download')).toBe('deck.pptx')
+  })
+
+  // describeError rewrites every 404 as "model not available on the server",
+  // which sent readers hunting a model problem when a file id was unknown.
+  it("shows the gateway's own reason when the file is not found", async () => {
+    mockFetchFile.mockRejectedValue(new GatewayError(404, 'file not found'))
+
+    render(<FileCard file={{ id: 'a'.repeat(32) }} />)
+
+    expect(await screen.findByText("Couldn't load file: file not found")).not.toBeNull()
+    expect(screen.queryByText(/model not available/)).toBeNull()
   })
 })

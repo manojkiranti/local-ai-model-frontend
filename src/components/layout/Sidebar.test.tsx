@@ -11,6 +11,7 @@ interface RenderProps {
   loadingMoreSessions?: boolean
   onLoadMoreSessions?: () => void
   sessionsError?: string | null
+  busySessionIds?: ReadonlySet<string>
 }
 
 function renderSidebar(props: RenderProps = {}) {
@@ -33,6 +34,7 @@ function renderSidebar(props: RenderProps = {}) {
         loadingMoreSessions={props.loadingMoreSessions ?? false}
         onLoadMoreSessions={props.onLoadMoreSessions ?? vi.fn()}
         sessionsError={props.sessionsError ?? null}
+        busySessionIds={props.busySessionIds}
       />
     </MemoryRouter>,
   )
@@ -140,5 +142,28 @@ describe('Sidebar contract mismatch', () => {
     renderSidebar({ sessions: [] })
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByText(/No conversations yet/i)).not.toBeNull()
+  })
+})
+
+describe('Sidebar processing indicator', () => {
+  afterEach(cleanup)
+
+  it('spins on every conversation still generating a reply, and only those', () => {
+    renderSidebar({
+      sessions: [session('a', 'Budget memo'), session('b', 'Leave policy'), session('c', 'Forex rates')],
+      busySessionIds: new Set(['a', 'c']),
+    })
+
+    const spinners = screen.getAllByRole('status', { name: 'Generating a reply' })
+    expect(spinners).toHaveLength(2)
+    const rowOf = (title: string) => screen.getByText(title).parentElement!
+    expect(rowOf('Budget memo').contains(spinners[0])).toBe(true)
+    expect(rowOf('Forex rates').contains(spinners[1])).toBe(true)
+    expect(rowOf('Leave policy').querySelector('[role="status"]')).toBeNull()
+  })
+
+  it('shows no indicator when nothing is running', () => {
+    renderSidebar({ sessions: [session('a', 'Budget memo')] })
+    expect(screen.queryByRole('status', { name: 'Generating a reply' })).toBeNull()
   })
 })

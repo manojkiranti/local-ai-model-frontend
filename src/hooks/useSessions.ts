@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
 import {
   deleteSession as apiDeleteSession,
   describeError,
@@ -122,19 +122,39 @@ function threadToUI(m: ThreadMessage, index: number, thread: ThreadMessage[]): U
   }
 }
 
+/** The thread key for a new chat that has not learned its session id yet. */
+const NEW_CHAT = '\u0000new'
+const NO_MESSAGES: UIMessage[] = []
+
+/** One turn in flight. Its session is null until a new chat learns its id. */
+interface Run {
+  controller: AbortController
+  sessionId: string | null
+}
+
 /**
  * Server-owned conversation state. The sidebar and thread come from
  * `/v1/sessions`; a turn sends only the new message to the single `/v1/chat`
  * endpoint (stateful, tool-capable, streaming). New conversations get their id
  * from the `X-Session-Id` header (or the terminal `done` event) and are then
  * adopted as active.
+ *
+ * A turn keeps running when the user switches to another chat: its thread is
+ * held in memory, under its session id, only while that turn is in flight (and
+ * after, if it failed, so Retry survives). `busySessionIds` drives the
+ * sidebar's processing indicator. This is not local persistence — a finished
+ * thread is dropped and reopened from the server. The one exception is a new
+ * chat that has not learned its id yet: there is nothing to file it under, so
+ * leaving it stops it, as before.
  */
 export function useSessions() {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<UIMessage[]>([])
+  // Threads by key: the open one, plus any whose turn is still running in the
+  // background. Stream updates find their message by id wherever it lives.
+  const [threads, setThreads] = useState<Record<string, UIMessage[]>>({})
   const [loadingThread, setLoadingThread] = useState(false)
-  const [sending, setSending] = useState(false)
+  const [running, setRunning] = useState<{ key: string; sessionId: string | null }[]>([])
   // Cursor paging. Both cursors are OPAQUE server tokens, only ever echoed
   // back; `null` means "no further page", which is also how the UI knows to
   // stop offering to load one.
@@ -146,12 +166,55 @@ export function useSessions() {
   // the sidebar can explain an empty list instead of just being empty.
   const [sessionsError, setSessionsError] = useState<string | null>(null)
 
-  const controllerRef = useRef<AbortController | null>(null)
+  const runsRef = useRef(new Map<string, Run>())
   const activeIdRef = useRef<string | null>(null)
   const activeAttachmentNameRef = useRef<string | null>(null)
   // eslint-disable-next-line react-hooks/refs -- latest-value ref, intentionally synced during render
   activeIdRef.current = activeId
 
+  const messages = threads[activeId ?? NEW_CHAT] ?? NO_MESSAGES
+  const threadsRef = useRef(threads)
+  // eslint-disable-next-line react-hooks/refs -- latest-value ref, intentionally synced during render
+  threadsRef.current = threads
+
+  /** Replace or update the OPEN thread (the one the user is looking at). */
+  const setMessages = useCallback((next: SetStateAction<UIMessage[]>) => {
+    const key = activeIdRef.current ?? NEW_CHAT
+    setThreads((prev) => ({
+      ...prev,
+      [key]: typeof next === 'function' ? next(prev[key] ?? NO_MESSAGES) : next,
+    }))
+  }, [])
+
+  const syncRuns = useCallback(() => {
+    setRunning([...runsRef.current].map(([key, run]) => ({ key, sessionId: run.sessionId })))
+  }, [])
+
+  /** Runs that belong to what is on screen: the open session, or the new chat. */
+  const viewRuns = useCallback(
+    () =>
+      [...runsRef.current.values()].filter((run) => run.sessionId === activeIdRef.current),
+    [],
+  )
+
+  /**
+   * Leave the open thread. A turn still running in it carries on in the
+   * background with its thread kept; otherwise the thread is dropped, so
+   * reopening it reads the server. A new chat with no id yet is stopped.
+   */
+  const leaveView = useCallback(() => {
+    const key = activeIdRef.current ?? NEW_CHAT
+    const live = viewRuns()
+    if (activeIdRef.current === null) for (const run of live) run.controller.abort()
+    if (activeIdRef.current === null || live.length === 0) {
+      setThreads((prev) => {
+        if (!(key in prev)) return prev
+        const rest = { ...prev }
+        delete rest[key]
+        return rest
+      })
+    }
+  }, [viewRuns])
   /**
    * Reload the FIRST page and discard everything paged in after it. Called on
    * mount and whenever the list is invalidated — a new session, a deletion, or
@@ -207,32 +270,44 @@ export function useSessions() {
     refreshSessions()
   }, [refreshSessions])
 
+  /** Update one message wherever its thread lives — open or in the background. */
   const patch = useCallback(
     (id: string, patchFn: (m: UIMessage) => Partial<UIMessage>) => {
-      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patchFn(m) } : m)))
+      setThreads((prev) => {
+        let next = prev
+        for (const [key, list] of Object.entries(prev)) {
+          if (!list.some((m) => m.id === id)) continue
+          next = { ...next, [key]: list.map((m) => (m.id === id ? { ...m, ...patchFn(m) } : m)) }
+        }
+        return next
+      })
     },
     [],
   )
 
   const newChat = useCallback(() => {
-    controllerRef.current?.abort()
+    leaveView()
     activeAttachmentNameRef.current = null
+    activeIdRef.current = null
     setActiveId(null)
     setMessages([])
     setThreadCursor(null)
-  }, [])
+  }, [leaveView, setMessages])
 
   const selectSession = useCallback(async (id: string) => {
     if (id === activeIdRef.current) return
-    controllerRef.current?.abort()
+    leaveView()
     activeAttachmentNameRef.current = null
     // Set the ref eagerly, exactly as runTurn's `adopt` does: it is otherwise
     // only synced during render, and a thread page that resolves before React
     // re-renders would fail its own "still the active session" guard below.
     activeIdRef.current = id
     setActiveId(id)
-    setMessages([])
     setThreadCursor(null)
+    // Its turn is still running (or failed) in the background: show that
+    // thread as it stands, not the server's copy, which lacks the turn.
+    if (threadsRef.current[id]) return
+    setMessages([])
     setLoadingThread(true)
     try {
       // One page — the NEWEST messages. `next_cursor` walks backwards from here.
@@ -252,7 +327,7 @@ export function useSessions() {
     } finally {
       setLoadingThread(false)
     }
-  }, [])
+  }, [leaveView, setMessages])
 
   /**
    * Prepend the page of messages OLDER than the ones on screen. Each page is
@@ -298,7 +373,7 @@ export function useSessions() {
     } finally {
       setLoadingOlder(false)
     }
-  }, [threadCursor, loadingOlder])
+  }, [threadCursor, loadingOlder, setMessages])
 
   const removeSession = useCallback(async (id: string) => {
     try {
@@ -308,15 +383,22 @@ export function useSessions() {
       if (!(e instanceof GatewayError && e.status === 404)) return
     }
     setSessions((prev) => prev.filter((s) => s.id !== id))
+    for (const run of runsRef.current.values()) if (run.sessionId === id) run.controller.abort()
+    setThreads((prev) => {
+      if (!(id in prev)) return prev
+      const rest = { ...prev }
+      delete rest[id]
+      return rest
+    })
     if (activeIdRef.current === id) {
-      controllerRef.current?.abort()
+      activeIdRef.current = null
       setActiveId(null)
       setMessages([])
       setThreadCursor(null)
     }
     // A deletion invalidates every page boundary after it — reset to page one.
     void refreshSessions()
-  }, [refreshSessions])
+  }, [refreshSessions, setMessages])
 
   /** Execute one turn against `assistantId`, reused by send() and retry(). */
   const runTurn = useCallback(
@@ -332,15 +414,28 @@ export function useSessions() {
       // the read succeeded — so queue the id and commit it when the result lands.
       const pendingImageIds: Array<string | null> = []
       const controller = new AbortController()
-      controllerRef.current = controller
-      setSending(true)
+      const run: Run = { controller, sessionId: sessionForTurn ?? null }
+      runsRef.current.set(assistantId, run)
+      syncRuns()
 
-      // New conversation: adopt the server's session id once we learn it.
+      // New conversation: adopt the server's session id once we learn it, and
+      // file its thread under that id. Still on screen — leaving a new chat
+      // before this point stops it — so it becomes the active session, and the
+      // sidebar reloads so its row (and processing indicator) appears now.
       const adopt = (sid: string | null | undefined) => {
-        if (sid && !activeIdRef.current) {
+        if (!sid || run.sessionId) return
+        run.sessionId = sid
+        syncRuns()
+        if (!activeIdRef.current) {
           activeIdRef.current = sid
           setActiveId(sid)
+          setThreads((prev) => {
+            const rest = { ...prev, [sid]: prev[NEW_CHAT] ?? NO_MESSAGES }
+            delete rest[NEW_CHAT]
+            return rest
+          })
         }
+        void refreshSessions()
       }
 
       try {
@@ -468,11 +563,25 @@ export function useSessions() {
           refreshSessions().catch(() => {})
         }
       } finally {
-        if (controllerRef.current === controller) controllerRef.current = null
-        setSending(false)
+        runsRef.current.delete(assistantId)
+        syncRuns()
+        // Finished in the background: the server now holds this turn, so drop
+        // the kept thread and let reopening read it — unless it failed, when
+        // the kept copy is the only one with the Retry button.
+        const sid = run.sessionId
+        if (sid) {
+          setThreads((prev) => {
+            const list = prev[sid]
+            if (!list || sid === activeIdRef.current) return prev
+            if (list.some((m) => m.id === assistantId && m.status === 'error')) return prev
+            const rest = { ...prev }
+            delete rest[sid]
+            return rest
+          })
+        }
       }
     },
-    [patch, refreshSessions],
+    [patch, refreshSessions, syncRuns],
   )
 
   const send = useCallback(
@@ -516,7 +625,7 @@ export function useSessions() {
         attachment?.filename,
       )
     },
-    [runTurn],
+    [runTurn, setMessages],
   )
 
   const retry = useCallback(
@@ -549,10 +658,20 @@ export function useSessions() {
       )
       void runTurn(assistantId, text, fileIds, department, attachmentName)
     },
-    [runTurn, messages],
+    [runTurn, messages, setMessages],
   )
 
-  const stop = useCallback(() => controllerRef.current?.abort(), [])
+  const stop = useCallback(() => {
+    for (const run of viewRuns()) run.controller.abort()
+  }, [viewRuns])
+
+  // A turn is running in what is on screen: the composer shows Stop.
+  const sending = running.some((run) => run.sessionId === activeId)
+  /** Sessions with a turn in flight, open or in the background. */
+  const busySessionIds = useMemo(
+    () => new Set(running.flatMap((run) => (run.sessionId ? [run.sessionId] : []))),
+    [running],
+  )
 
   return {
     sessions,
@@ -562,6 +681,7 @@ export function useSessions() {
     messages,
     loadingThread,
     sending,
+    busySessionIds,
     newChat,
     selectSession,
     removeSession,

@@ -296,6 +296,15 @@ explicitly includes backend work.
   tool a grant unlocks; this client renders grants and derives nothing. The entry
   point is the row link in `src/components/admin/UsersPage.tsx` and the
   `admin/users/:id` route in `src/components/workspace/Workspace.tsx`.
+- **Built-in tool access (per user):** read `src/hooks/useToolAccess.ts`,
+  `src/components/admin/ToolAccessPanel.tsx` and its test. Admins switch whole
+  GROUPS (`GET /v1/users/{id}/tool-access`, `PUT`/`DELETE
+  .../tool-access/groups/{group}`, admin-only; both writes return the full
+  list). The gateway owns the rule (`app/toolaccess/policy.py`: a starter set —
+  everything but the `external` group — plus per-user overrides) and each
+  group's state (`default`/`granted`/`blocked`/`mixed`), and enforces it on
+  every chat turn; this client renders the groups it is sent and derives none
+  of it. MCP tools are NOT here — they follow the MCP grants (hard rule 18).
 - **Styling or theme work:** read the token definitions in `src/index.css` and
   inspect the existing shared UI primitive first.
 - **Routes or navigation:** follow `src/App.tsx`, then the nested routes in

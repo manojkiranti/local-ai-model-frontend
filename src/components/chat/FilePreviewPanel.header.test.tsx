@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Its own file because the template artwork is cached at module level: the
@@ -40,14 +40,30 @@ afterEach(() => {
 })
 
 describe('FilePreviewPanel slide header', () => {
-  it('puts a content slide title inside the branded header band, above the divider', async () => {
+  it('draws a content slide as a 16:9 slide on the template artwork, title 20 pt bold in the header box as in the .pptx', async () => {
     render(<FilePreviewPanel file={{ id: 'f1' }} onClose={vi.fn()} />)
 
-    const header = await screen.findByTestId('slide-header')
+    const box = await screen.findByTestId('slide-title-box')
     const title = screen.getByRole('heading', { name: 'Hello' })
-    expect(header.contains(title)).toBe(true)
-    // Rendered once — not repeated below the band as the plain fallback does.
+    expect(box.contains(title)).toBe(true)
+    // create_pptx's _HEADER_TITLE_BOX: left of the logo, above the divider.
+    expect(box.style.left).toBe('2.5%')
+    expect(box.style.top).toBe('2%')
+    expect(box.style.width).toBe('80%')
+    expect(box.style.height).toBe('13%')
+    // The deck's own CONTENT_TITLE_PT: 20 pt on a 96 dpi slide is 26.67 px.
+    expect(parseFloat(title.style.fontSize)).toBeCloseTo(26.667, 2)
+    expect(title.className).toContain('font-bold')
+    // Rendered once — the title is never repeated in the body.
     expect(screen.getAllByText('Hello')).toHaveLength(1)
     expect(screen.getByText('point one')).not.toBeNull()
+
+    // The whole slide is the template's full-bleed master artwork, at 1280 x 720.
+    await waitFor(() => {
+      const slide = box.parentElement!
+      expect(slide.style.backgroundImage).toContain('blob:art')
+      expect(slide.style.width).toBe('1280px')
+      expect(slide.style.height).toBe('720px')
+    })
   })
 })
